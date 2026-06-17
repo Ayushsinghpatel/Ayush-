@@ -181,7 +181,7 @@ export function mapReceiptRows(rawRows) {
           supplier: (row["Supplier"] || "").toString().trim(),
           item: (row["Item"] || "").toString().trim(),
           receivedQty: Number(row["Recvd QTY"]) || 0,
-          rate: 0, // not present in this sheet; left for cross-reference with PO data if needed
+          rate: Number(row["Rate"]) || 0, // not present in this sheet; left for cross-reference with PO data if needed
         };
       }
       // Dashboard's own mock shape
