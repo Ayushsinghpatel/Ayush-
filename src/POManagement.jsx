@@ -133,19 +133,56 @@ function SectionHeader({ title, sub, dark }) {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ po, receipts, dark }) {
-  const totalQty = po.reduce((a, r) => a + r.qty, 0);
-  const totalReceived = po.reduce((a, r) => a + r.receivedQty, 0);
-  const totalPending = po.filter(r => r.status !== "Complete").reduce((a, r) => a + (r.qty - r.receivedQty), 0);
-  const totalShort = po.filter(r => r.receivedQty < r.qty && r.receivedQty > 0).reduce((a, r) => a + (r.qty - r.receivedQty), 0);
-  const totalExcess = po.filter(r => r.receivedQty > r.qty).reduce((a, r) => a + (r.receivedQty - r.qty), 0);
-  const totalValue = po.reduce((a, r) => a + r.totalAmt, 0);
-  const totalGST = po.reduce((a, r) => a + (r.totalAmt - r.taxableAmt), 0);
-  const suppliers = [...new Set(po.map(r => r.supplier))].length;
+
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const filteredPO = po.filter(r => {
+  if (!r.poDate) return true;
+
+  const rowDate = new Date(r.poDate);
+
+  const from = fromDate ? new Date(fromDate) : null;
+  const to = toDate ? new Date(toDate + "T23:59:59") : null;
+
+  if (from && rowDate < from) return false;
+  if (to && rowDate > to) return false;
+
+  return true;
+});
+
+  const totalQty = filteredPO.reduce((a, r) => a + r.qty, 0);
+  const totalReceived = filteredPO.reduce((a, r) => a + r.receivedQty, 0);
+  const totalPending = filteredPO
+    .filter(r => r.status !== "Complete")
+    .reduce((a, r) => a + (r.qty - r.receivedQty), 0);
+
+  const totalShort = filteredPO
+    .filter(r => r.receivedQty < r.qty && r.receivedQty > 0)
+    .reduce((a, r) => a + (r.qty - r.receivedQty), 0);
+
+  const totalExcess = filteredPO
+    .filter(r => r.receivedQty > r.qty)
+    .reduce((a, r) => a + (r.receivedQty - r.qty), 0);
+
+  const totalValue = filteredPO.reduce((a, r) => a + r.totalAmt, 0);
+
+  const totalGST = filteredPO.reduce(
+    (a, r) => a + (r.totalAmt - r.taxableAmt),
+    0
+  );
+
+  const suppliers = [
+    ...new Set(filteredPO.map(r => r.supplier))
+  ].length;
 
   // Monthly data
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+  const months = [
+  "Jan","Feb","Mar","Apr","May","Jun",
+  "Jul","Aug","Sep","Oct","Nov","Dec"
+];
   const monthlyData = months.map((m, i) => {
-    const mpo = po.filter(r => new Date(r.poDate).getMonth() === i);
+    const mpo = filteredPO.filter(r => new Date(r.poDate).getMonth() === i);
     return {
       month: m,
       ordered: mpo.reduce((a, r) => a + r.qty, 0),
@@ -157,15 +194,19 @@ function Dashboard({ po, receipts, dark }) {
 
   // Delivery distribution
   const deliveryData = ["Regular", "Urgent Rail", "Urgent Air"].map(t => ({
-    name: t,
-    count: po.filter(r => r.deliveryType === t).length,
-    qty: po.filter(r => r.deliveryType === t).reduce((a, r) => a + r.qty, 0),
-    value: Math.round(po.filter(r => r.deliveryType === t).reduce((a, r) => a + r.totalAmt, 0) / 1000),
-  }));
+  name: t,
+  count: filteredPO.filter(r => r.deliveryType === t).length,
+  qty: filteredPO.filter(r => r.deliveryType === t).reduce((a, r) => a + r.qty, 0),
+  value: Math.round(
+    filteredPO
+      .filter(r => r.deliveryType === t)
+      .reduce((a, r) => a + r.totalAmt, 0) / 1000
+  ),
+}));
 
   // Supplier data
   const supplierMap = {};
-  po.forEach(r => {
+  filteredPO.forEach(r => {
     if (!supplierMap[r.supplier]) supplierMap[r.supplier] = { qty: 0, value: 0, pending: 0 };
     supplierMap[r.supplier].qty += r.qty;
     supplierMap[r.supplier].value += r.totalAmt;
@@ -174,7 +215,7 @@ function Dashboard({ po, receipts, dark }) {
   const supplierData = Object.entries(supplierMap).map(([name, d]) => ({ name, ...d, value: Math.round(d.value / 1000) })).sort((a, b) => b.value - a.value);
 
   // Ageing
-  const pendingPO = po.filter(r => r.status !== "Complete");
+  const pendingPO = filteredPO.filter(r => r.status !== "Complete");
   const ageGroups = ["0–15 Days", "16–30 Days", "31–45 Days", "46–60 Days", "60+ Days"];
   const ageData = ageGroups.map(g => ({
     name: g,
@@ -185,7 +226,57 @@ function Dashboard({ po, receipts, dark }) {
   const notifs = pendingPO.filter(r => ageDays(r.poDate) > 15);
 
   return (
-    <div className="space-y-6">
+  <div className="space-y-6">
+
+    <div className={`rounded-xl p-4 border ${
+      dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"
+    }`}>
+      <div className="flex flex-wrap gap-3 items-end">
+
+        <div>
+          <label className="block text-xs mb-1">
+            From Date
+          </label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className={`px-3 py-2 rounded-lg border ${
+              dark
+                ? "bg-gray-700 border-gray-600 text-white"
+                : "bg-white border-gray-200 text-gray-800"
+            }`}
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs mb-1">
+            To Date
+          </label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className={`px-3 py-2 rounded-lg border ${
+              dark
+                ? "bg-gray-700 border-gray-600 text-white"
+                : "bg-white border-gray-200 text-gray-800"
+            }`}
+          />
+        </div>
+
+        <button
+          onClick={() => {
+            setFromDate("");
+            setToDate("");
+          }}
+          className="px-4 py-2 bg-red-500 text-white rounded-lg"
+        >
+          Clear Filter
+        </button>
+
+      </div>
+    </div>
       {/* Notifications */}
       {notifs.length > 0 && (
         <div className={`rounded-xl p-3 border-l-4 border-red-500 ${dark ? "bg-red-900/20" : "bg-red-50"}`}>
@@ -239,7 +330,7 @@ function Dashboard({ po, receipts, dark }) {
                   <span className="font-semibold" style={{ color: DELIVERY_COLORS[d.name] }}>{d.count} POs · {fmt(d.qty)} units</span>
                 </div>
                 <div className={`h-2 rounded-full ${dark ? "bg-gray-700" : "bg-gray-100"}`}>
-                  <div className="h-2 rounded-full" style={{ width: `${(d.count / po.length) * 100}%`, background: DELIVERY_COLORS[d.name] }} />
+                  <div className="h-2 rounded-full" style={{ width: `${(filteredPO.length ? (d.count / filteredPO.length) * 100 : 0)}%`, background: DELIVERY_COLORS[d.name] }} />
                 </div>
               </div>
             ))}
