@@ -642,59 +642,210 @@ function ExcelUpload({ onUpload, dark }) {
 
 // ─── ITEM DASHBOARD ───────────────────────────────────────────────────────────
 function ItemDashboard({ po, dark }) {
+  const [selectedItem, setSelectedItem] = React.useState(null);
+
   const itemMap = {};
+
   po.forEach(r => {
-    if (!itemMap[r.item]) itemMap[r.item] = { qty: 0, received: 0, pending: 0, spend: 0 };
+    if (!itemMap[r.item]) {
+      itemMap[r.item] = {
+        qty: 0,
+        received: 0,
+        pending: 0,
+        spend: 0
+      };
+    }
+
     itemMap[r.item].qty += r.qty;
     itemMap[r.item].received += r.receivedQty;
     itemMap[r.item].pending += Math.max(0, r.qty - r.receivedQty);
     itemMap[r.item].spend += r.totalAmt;
   });
-  const data = Object.entries(itemMap).map(([name, d]) => ({ name: name.length > 18 ? name.slice(0, 18) + "…" : name, ...d, spend: Math.round(d.spend / 1000) })).sort((a, b) => b.spend - a.spend).slice(0, 10);
+
+  const data = Object.entries(itemMap)
+    .map(([name, d]) => ({
+      fullName: name,
+      name: name.length > 18 ? name.slice(0, 18) + "…" : name,
+      ...d,
+      spend: Math.round(d.spend / 1000)
+    }))
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, 10);
 
   return (
     <div className="space-y-4">
+
       <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-        <SectionHeader title="Top 10 Items by Spend" sub="Procurement value in ₹K" dark={dark} />
+        <SectionHeader
+          title="Top 10 Items by Spend"
+          sub="Procurement value in ₹K"
+          dark={dark}
+        />
+
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={data} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" stroke={dark ? "#374151" : "#f3f4f6"} />
-            <XAxis type="number" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} />
-            <YAxis dataKey="name" type="category" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 10 }} width={120} />
-            <Tooltip contentStyle={{ background: dark ? "#1f2937" : "#fff", border: "1px solid #e5e7eb", borderRadius: 8 }} formatter={v => "₹" + fmt(v) + "K"} />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={dark ? "#374151" : "#f3f4f6"}
+            />
+            <XAxis
+              type="number"
+              tick={{
+                fill: dark ? "#9ca3af" : "#6b7280",
+                fontSize: 11
+              }}
+            />
+            <YAxis
+              dataKey="name"
+              type="category"
+              tick={{
+                fill: dark ? "#9ca3af" : "#6b7280",
+                fontSize: 10
+              }}
+              width={120}
+            />
+            <Tooltip
+              contentStyle={{
+                background: dark ? "#1f2937" : "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8
+              }}
+              formatter={v => "₹" + fmt(v) + "K"}
+            />
             <Legend />
-            <Bar dataKey="spend" name="Spend (₹K)" fill="#6366f1" radius={[0, 4, 4, 0]} />
+            <Bar
+              dataKey="spend"
+              name="Spend (₹K)"
+              fill="#6366f1"
+              radius={[0, 4, 4, 0]}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
+
       <div className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
               <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
                 {["Item", "Ordered Qty", "Received Qty", "Pending Qty", "Spend (₹K)"].map(h => (
-                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>{h}</th>
+                  <th
+                    key={h}
+                    className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}
+                  >
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
+
             <tbody>
               {data.map((r, i) => (
-                <tr key={i} className={`border-b ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-gray-50"}`}>
-                  <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>{r.name}</td>
-                  <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-300" : "text-gray-600"}`}>{fmt(r.qty)}</td>
-                  <td className={`py-2.5 px-3 text-right text-green-600 font-medium`}>{fmt(r.received)}</td>
-                  <td className={`py-2.5 px-3 text-right ${r.pending > 0 ? "text-red-500 font-medium" : "text-green-600"}`}>{fmt(r.pending)}</td>
-                  <td className={`py-2.5 px-3 text-right font-semibold ${dark ? "text-indigo-400" : "text-indigo-600"}`}>₹{fmt(r.spend)}K</td>
+                <tr
+                  key={i}
+                  onClick={() => setSelectedItem(r.fullName)}
+                  className={`cursor-pointer border-b ${
+                    dark
+                      ? "border-gray-700/50 hover:bg-gray-700/30"
+                      : "border-gray-50 hover:bg-blue-50"
+                  }`}
+                >
+                  <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>
+                    {r.name}
+                  </td>
+
+                  <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-300" : "text-gray-600"}`}>
+                    {fmt(r.qty)}
+                  </td>
+
+                  <td className="py-2.5 px-3 text-right text-green-600 font-medium">
+                    {fmt(r.received)}
+                  </td>
+
+                  <td className={`py-2.5 px-3 text-right ${
+                    r.pending > 0
+                      ? "text-red-500 font-medium"
+                      : "text-green-600"
+                  }`}>
+                    {fmt(r.pending)}
+                  </td>
+
+                  <td className={`py-2.5 px-3 text-right font-semibold ${
+                    dark ? "text-indigo-400" : "text-indigo-600"
+                  }`}>
+                    ₹{fmt(r.spend)}K
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {selectedItem && (
+        <div className={`rounded-xl border overflow-hidden ${
+          dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"
+        } shadow-sm`}>
+
+          <div className="p-3 border-b">
+            <h3 className="font-semibold">
+              Pending PO Details - {selectedItem}
+            </h3>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+
+              <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
+                <tr>
+                  <th className="text-left py-2 px-3">PO No</th>
+                  <th className="text-left py-2 px-3">Supplier</th>
+                  <th className="text-right py-2 px-3">Ordered Qty</th>
+                  <th className="text-right py-2 px-3">Received Qty</th>
+                  <th className="text-right py-2 px-3">Pending Qty</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {po
+                  .filter(
+                    p =>
+                      p.item &&
+                      p.item === selectedItem
+                  )
+                  .map((p, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2 px-3 font-semibold text-indigo-600">
+                        {p.poNo}
+                      </td>
+
+                      <td className="py-2 px-3">
+                        {p.supplier}
+                      </td>
+
+                      <td className="py-2 px-3 text-right">
+                        {fmt(p.qty)}
+                      </td>
+
+                      <td className="py-2 px-3 text-right text-green-600">
+                        {fmt(p.receivedQty)}
+                      </td>
+
+                      <td className="py-2 px-3 text-right text-red-500 font-semibold">
+                        {fmt(Math.max(0, p.qty - p.receivedQty))}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
-
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
