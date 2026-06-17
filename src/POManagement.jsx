@@ -642,7 +642,7 @@ function ExcelUpload({ onUpload, dark }) {
 
 // ─── ITEM DASHBOARD ───────────────────────────────────────────────────────────
 function ItemDashboard({ po, dark }) {
-  const [selectedItem, setSelectedItem] = React.useState(null);
+  const [selectedItem, setSelectedItem] = useState(null);
 
   const itemMap = {};
 
