@@ -4,7 +4,7 @@ import POManagement from "./POManagement.jsx";
 // Password comes from an environment variable set on the hosting platform
 // (Vercel / Netlify dashboard → Environment Variables), NOT hardcoded here.
 // Vite only exposes vars prefixed with VITE_ to the browser.
-const SITE_PASSWORD = import.meta.env.VITE_APP_PASSWORD;
+const SITE_PASSWORD = "Ayush@123";
 
 const SESSION_KEY = "ppauto_po_session";
 const SESSION_TTL_HOURS = 12;
