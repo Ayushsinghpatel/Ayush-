@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+.DS_Store
+
+# Real PO data files should never be committed to the repo —
+# upload them via the app's "Import Excel" tab at runtime instead.
+*.xlsx
+*.xls
+sample-data/
