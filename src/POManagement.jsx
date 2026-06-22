@@ -5,7 +5,6 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Area, AreaChart, ComposedChart
 } from "recharts";
-import { mapPORows, mapReceiptRows, mapRateRows } from "./poDataMapper.js";
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 const MOCK_PO = [
@@ -56,7 +55,7 @@ const MOCK_RATES = [
 ];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const fmt = (n) => new Intl.NumberFormat("en-IN").format(Math.round(Number(n) || 0));
+const fmt  = (n) => new Intl.NumberFormat("en-IN").format(Math.round(Number(n) || 0));
 const fmtC = (n) => "₹" + new Intl.NumberFormat("en-IN").format(Math.round(Number(n) || 0));
 
 function ageDays(dateStr) {
@@ -64,41 +63,67 @@ function ageDays(dateStr) {
   if (isNaN(d.getTime())) return 0;
   return Math.floor((new Date() - d) / 86400000);
 }
-
 function ageBucket(days) {
-  if (days <= 15) return { label: "0–15 Days", color: "#16a34a", badge: "15d" };
-  if (days <= 30) return { label: "16–30 Days", color: "#ca8a04", badge: "30d" };
-  if (days <= 45) return { label: "31–45 Days", color: "#ea580c", badge: "45d" };
-  if (days <= 60) return { label: "46–60 Days", color: "#dc2626", badge: "60d" };
-  return { label: "60+ Days", color: "#7f1d1d", badge: "60d+" };
+  if (days <= 15) return { label:"0–15 Days",  color:"#16a34a", badge:"15d"  };
+  if (days <= 30) return { label:"16–30 Days", color:"#ca8a04", badge:"30d"  };
+  if (days <= 45) return { label:"31–45 Days", color:"#ea580c", badge:"45d"  };
+  if (days <= 60) return { label:"46–60 Days", color:"#dc2626", badge:"60d"  };
+  return              { label:"60+ Days",   color:"#7f1d1d", badge:"60d+" };
+}
+
+// Build list of all months that exist in the data
+function buildMonthOptions(poArray) {
+  const set = new Set();
+  poArray.forEach(r => {
+    if (!r.poDate) return;
+    const d = new Date(r.poDate);
+    if (isNaN(d)) return;
+    set.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+  });
+  return ["All", ...Array.from(set).sort()];
+}
+
+function monthLabel(ym) {
+  if (ym === "All") return "All Months";
+  const [y, m] = ym.split("-");
+  return new Date(+y, +m-1, 1).toLocaleString("en-IN", { month:"short", year:"numeric" });
 }
 
 const DELIVERY_COLORS = { Regular:"#3b82f6", "Urgent Rail":"#f59e0b", "Urgent Air":"#ef4444" };
 const SUPPLIER_COLORS = ["#6366f1","#06b6d4","#10b981","#f59e0b","#ef4444","#8b5cf6"];
-const STATUS_COLOR = { Complete:"#16a34a", Partial:"#ca8a04", Pending:"#dc2626", Cancelled:"#6b7280" };
+const STATUS_COLOR    = { Complete:"#16a34a", Partial:"#ca8a04", Pending:"#dc2626", Cancelled:"#6b7280" };
 
-// ─── COMPONENTS ───────────────────────────────────────────────────────────────
-
-function KpiCard({ icon, label, value, sub, color = "#6366f1", dark }) {
+// ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
+function KpiCard({ icon, label, value, sub, color="#6366f1", dark, onClick, clickable }) {
   return (
-    <div className={`rounded-xl p-4 flex flex-col gap-1 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+    <div
+      onClick={onClick}
+      className={`rounded-xl p-4 flex flex-col gap-1 border shadow-sm
+        ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"}
+        ${clickable ? "cursor-pointer hover:ring-2 hover:ring-indigo-300 transition-all" : ""}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-2xl">{icon}</span>
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: color + "22", color }}>{sub}</span>
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+          style={{ background: color+"22", color }}>
+          {sub}
+        </span>
       </div>
       <p className={`text-2xl font-bold mt-1 ${dark ? "text-white" : "text-gray-800"}`}>{value}</p>
-      <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{label}</p>
+      <div className="flex items-center justify-between">
+        <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{label}</p>
+        {clickable && <span className="text-xs text-indigo-500">View details →</span>}
+      </div>
     </div>
   );
 }
 
 function Badge({ status }) {
-  if (!status || status === "N/A") {
+  if (!status || status === "N/A")
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-400">—</span>;
-  }
   return (
     <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-      style={{ background: (STATUS_COLOR[status] || "#6b7280") + "22", color: STATUS_COLOR[status] || "#6b7280" }}>
+      style={{ background:(STATUS_COLOR[status]||"#6b7280")+"22", color:STATUS_COLOR[status]||"#6b7280" }}>
       {status}
     </span>
   );
@@ -108,7 +133,7 @@ function AgeBadge({ days }) {
   const b = ageBucket(days);
   return (
     <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-      style={{ background: b.color + "22", color: b.color }}>
+      style={{ background:b.color+"22", color:b.color }}>
       {b.badge}
     </span>
   );
@@ -116,275 +141,400 @@ function AgeBadge({ days }) {
 
 function ShortExcess({ ordered, received }) {
   const diff = received - ordered;
-  const pct = ordered ? ((diff / ordered) * 100).toFixed(1) : 0;
+  const pct  = ordered ? ((diff/ordered)*100).toFixed(1) : 0;
   if (diff === 0) return <span className="text-green-600 font-medium text-xs">✓ Complete</span>;
-  if (diff < 0) return <span className="text-red-600 font-medium text-xs">▼ {Math.abs(diff)} ({pct}%)</span>;
-  return <span className="text-blue-600 font-medium text-xs">▲ +{diff} (+{pct}%)</span>;
+  if (diff < 0)   return <span className="text-red-600  font-medium text-xs">▼ {Math.abs(diff)} ({pct}%)</span>;
+  return               <span className="text-blue-600 font-medium text-xs">▲ +{diff} (+{pct}%)</span>;
 }
 
 function SectionHeader({ title, sub, dark }) {
   return (
     <div className="mb-4">
-      <h2 className={`text-lg font-semibold ${dark ? "text-white" : "text-gray-800"}`}>{title}</h2>
-      {sub && <p className={`text-xs mt-0.5 ${dark ? "text-gray-400" : "text-gray-500"}`}>{sub}</p>}
+      <h2 className={`text-lg font-semibold ${dark?"text-white":"text-gray-800"}`}>{title}</h2>
+      {sub && <p className={`text-xs mt-0.5 ${dark?"text-gray-400":"text-gray-500"}`}>{sub}</p>}
+    </div>
+  );
+}
+
+// ─── PENDING PO DRILL-DOWN MODAL ─────────────────────────────────────────────
+function PendingModal({ po, title, dark, onClose }) {
+  const pendingPOs = po.filter(r => r.status !== "Complete" && Math.max(0, r.qty - r.receivedQty) > 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background:"rgba(0,0,0,0.5)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col
+        ${dark ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-100"}`}>
+
+        {/* Modal Header */}
+        <div className={`flex items-center justify-between px-5 py-4 border-b
+          ${dark ? "border-gray-700" : "border-gray-100"}`}>
+          <div>
+            <h3 className={`text-base font-semibold ${dark?"text-white":"text-gray-800"}`}>{title}</h3>
+            <p className={`text-xs mt-0.5 ${dark?"text-gray-400":"text-gray-500"}`}>
+              {pendingPOs.length} POs · Total Pending Qty: {fmt(pendingPOs.reduce((a,r)=>a+Math.max(0,r.qty-r.receivedQty),0))}
+            </p>
+          </div>
+          <button onClick={onClose}
+            className={`p-2 rounded-lg text-lg ${dark?"hover:bg-gray-700 text-gray-300":"hover:bg-gray-100 text-gray-500"}`}>
+            ✕
+          </button>
+        </div>
+
+        {/* Modal Table */}
+        <div className="overflow-auto flex-1">
+          <table className="w-full text-sm">
+            <thead className={`sticky top-0 ${dark?"bg-gray-700":"bg-gray-50"}`}>
+              <tr className={`border-b ${dark?"border-gray-600":"border-gray-100"}`}>
+                {["PO No","PO Date","Supplier","Item","Ordered Qty","Received Qty","Pending Qty","Pending Amt","Delivery","Age"].map(h=>(
+                  <th key={h} className={`text-left py-2.5 px-3 text-xs font-semibold whitespace-nowrap
+                    ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pendingPOs.length === 0 && (
+                <tr><td colSpan={10} className="py-10 text-center text-gray-400 text-sm">No pending POs</td></tr>
+              )}
+              {pendingPOs
+                .sort((a,b)=>ageDays(b.poDate)-ageDays(a.poDate))
+                .map((r,i)=>{
+                  const pendingQty = Math.max(0, r.qty - r.receivedQty);
+                  const pendingAmt = Math.round((pendingQty / r.qty) * r.totalAmt);
+                  const days = ageDays(r.poDate);
+                  return (
+                    <tr key={r.poNo||i}
+                      className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-indigo-50/30"}`}>
+                      <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>
+                        {r.poNo}
+                      </td>
+                      <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{r.poDate}</td>
+                      <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{r.supplier}</td>
+                      <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.item}</td>
+                      <td className={`py-2.5 px-3 text-right ${dark?"text-gray-200":"text-gray-700"}`}>{fmt(r.qty)}</td>
+                      <td className="py-2.5 px-3 text-right text-green-600 font-medium">{fmt(r.receivedQty)}</td>
+                      <td className="py-2.5 px-3 text-right text-red-500 font-bold">{fmt(pendingQty)}</td>
+                      <td className={`py-2.5 px-3 text-right text-xs font-semibold ${dark?"text-amber-400":"text-amber-600"}`}>
+                        {fmtC(pendingAmt)}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background:(DELIVERY_COLORS[r.deliveryType]||"#6b7280")+"22",
+                                   color:DELIVERY_COLORS[r.deliveryType]||"#6b7280" }}>
+                          {r.deliveryType}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3"><AgeBadge days={days} /></td>
+                    </tr>
+                  );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Summary Footer */}
+        <div className={`px-5 py-3 border-t flex flex-wrap gap-4 text-xs
+          ${dark?"border-gray-700 text-gray-400":"border-gray-100 text-gray-500"}`}>
+          <span>🔴 Short (partial): {pendingPOs.filter(r=>r.receivedQty>0).length} POs</span>
+          <span>⚪ Not received: {pendingPOs.filter(r=>r.receivedQty===0).length} POs</span>
+          <span>⚠ Overdue 30d+: {pendingPOs.filter(r=>ageDays(r.poDate)>30).length} POs</span>
+          <span className="ml-auto font-semibold">
+            Total Pending Value: {fmtC(pendingPOs.reduce((a,r)=>{
+              const pq = Math.max(0,r.qty-r.receivedQty);
+              return a + Math.round((pq/r.qty)*r.totalAmt);
+            },0))}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ po, receipts, dark }) {
+  const [fromDate,    setFromDate]    = useState("");
+  const [toDate,      setToDate]      = useState("");
+  const [selMonth,    setSelMonth]    = useState("All");
+  const [modalOpen,   setModalOpen]   = useState(false);
+  const [modalTitle,  setModalTitle]  = useState("Pending POs");
 
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const monthOptions = useMemo(() => buildMonthOptions(po), [po]);
 
-  const filteredPO = po.filter(r => {
-  if (!r.poDate) return true;
+  // ── Filter logic (date range OR month — they work together) ──────────────
+  const filteredPO = useMemo(() => {
+    return po.filter(r => {
+      if (!r.poDate) return true;
+      const d = new Date(r.poDate);
 
-  const rowDate = new Date(r.poDate);
+      // Month filter
+      if (selMonth !== "All") {
+        const [fy, fm] = selMonth.split("-");
+        if (d.getFullYear() !== +fy || d.getMonth()+1 !== +fm) return false;
+      }
 
-  const from = fromDate ? new Date(fromDate) : null;
-  const to = toDate ? new Date(toDate + "T23:59:59") : null;
+      // Date range filter (only if month not selected, or for extra precision)
+      if (fromDate) {
+        const from = new Date(fromDate);
+        if (d < from) return false;
+      }
+      if (toDate) {
+        const to = new Date(toDate + "T23:59:59");
+        if (d > to) return false;
+      }
+      return true;
+    });
+  }, [po, fromDate, toDate, selMonth]);
 
-  if (from && rowDate < from) return false;
-  if (to && rowDate > to) return false;
+  const clearFilters = () => { setFromDate(""); setToDate(""); setSelMonth("All"); };
+  const hasFilter = fromDate || toDate || selMonth !== "All";
 
-  return true;
-});
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const totalQty      = filteredPO.reduce((a,r)=>a+r.qty, 0);
+  const totalReceived = filteredPO.reduce((a,r)=>a+r.receivedQty, 0);
+  const totalPending  = filteredPO.filter(r=>r.status!=="Complete").reduce((a,r)=>a+Math.max(0,r.qty-r.receivedQty),0);
+  const totalShort    = filteredPO.filter(r=>r.receivedQty<r.qty&&r.receivedQty>0).reduce((a,r)=>a+(r.qty-r.receivedQty),0);
+  const totalExcess   = filteredPO.filter(r=>r.receivedQty>r.qty).reduce((a,r)=>a+(r.receivedQty-r.qty),0);
+  const totalValue    = filteredPO.reduce((a,r)=>a+r.totalAmt, 0);
+  const totalGST      = filteredPO.reduce((a,r)=>a+(r.totalAmt-r.taxableAmt),0);
+  const suppliers     = [...new Set(filteredPO.map(r=>r.supplier))].length;
 
-  const totalQty = filteredPO.reduce((a, r) => a + r.qty, 0);
-  const totalReceived = filteredPO.reduce((a, r) => a + r.receivedQty, 0);
-  const totalPending = filteredPO
-    .filter(r => r.status !== "Complete")
-    .reduce((a, r) => a + (r.qty - r.receivedQty), 0);
+  // ── Monthly Chart data ────────────────────────────────────────────────────
+  const monthlyData = useMemo(() => {
+    const map = {};
+    filteredPO.forEach(r => {
+      if (!r.poDate) return;
+      const d = new Date(r.poDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if (!map[key]) map[key] = { month:key, label:d.toLocaleString("en-IN",{month:"short",year:"2-digit"}), ordered:0, received:0, pending:0, value:0 };
+      map[key].ordered  += r.qty;
+      map[key].received += r.receivedQty;
+      map[key].pending  += r.status!=="Complete" ? Math.max(0,r.qty-r.receivedQty) : 0;
+      map[key].value    += r.totalAmt;
+    });
+    return Object.values(map)
+      .sort((a,b)=>a.month.localeCompare(b.month))
+      .map(d=>({ ...d, value: Math.round(d.value/1000) }));
+  }, [filteredPO]);
 
-  const totalShort = filteredPO
-    .filter(r => r.receivedQty < r.qty && r.receivedQty > 0)
-    .reduce((a, r) => a + (r.qty - r.receivedQty), 0);
-
-  const totalExcess = filteredPO
-    .filter(r => r.receivedQty > r.qty)
-    .reduce((a, r) => a + (r.receivedQty - r.qty), 0);
-
-  const totalValue = filteredPO.reduce((a, r) => a + r.totalAmt, 0);
-
-  const totalGST = filteredPO.reduce(
-    (a, r) => a + (r.totalAmt - r.taxableAmt),
-    0
-  );
-
-  const suppliers = [
-    ...new Set(filteredPO.map(r => r.supplier))
-  ].length;
-
-  // Monthly data
-  const months = [
-  "Jan","Feb","Mar","Apr","May","Jun",
-  "Jul","Aug","Sep","Oct","Nov","Dec"
-];
-  const monthlyData = months.map((m, i) => {
-    const mpo = filteredPO.filter(r => new Date(r.poDate).getMonth() === i);
-    return {
-      month: m,
-      ordered: mpo.reduce((a, r) => a + r.qty, 0),
-      received: mpo.reduce((a, r) => a + r.receivedQty, 0),
-      pending: mpo.filter(r => r.status !== "Complete").reduce((a, r) => a + Math.max(0, r.qty - r.receivedQty), 0),
-      value: Math.round(mpo.reduce((a, r) => a + r.totalAmt, 0) / 1000),
-    };
-  }).filter(d => d.ordered > 0);
-
-  // Delivery distribution
-  const deliveryData = ["Regular", "Urgent Rail", "Urgent Air"].map(t => ({
-  name: t,
-  count: filteredPO.filter(r => r.deliveryType === t).length,
-  qty: filteredPO.filter(r => r.deliveryType === t).reduce((a, r) => a + r.qty, 0),
-  value: Math.round(
-    filteredPO
-      .filter(r => r.deliveryType === t)
-      .reduce((a, r) => a + r.totalAmt, 0) / 1000
-  ),
-}));
-
-  // Supplier data
-  const supplierMap = {};
-  filteredPO.forEach(r => {
-    if (!supplierMap[r.supplier]) supplierMap[r.supplier] = { qty: 0, value: 0, pending: 0 };
-    supplierMap[r.supplier].qty += r.qty;
-    supplierMap[r.supplier].value += r.totalAmt;
-    supplierMap[r.supplier].pending += Math.max(0, r.qty - r.receivedQty);
-  });
-  const supplierData = Object.entries(supplierMap).map(([name, d]) => ({ name, ...d, value: Math.round(d.value / 1000) })).sort((a, b) => b.value - a.value);
-
-  // Ageing
-  const pendingPO = filteredPO.filter(r => r.status !== "Complete");
-  const ageGroups = ["0–15 Days", "16–30 Days", "31–45 Days", "46–60 Days", "60+ Days"];
-  const ageData = ageGroups.map(g => ({
-    name: g,
-    count: pendingPO.filter(r => ageBucket(ageDays(r.poDate)).label === g).length,
+  // ── Delivery distribution ─────────────────────────────────────────────────
+  const deliveryData = ["Regular","Urgent Rail","Urgent Air"].map(t=>({
+    name: t,
+    count: filteredPO.filter(r=>r.deliveryType===t).length,
+    qty:   filteredPO.filter(r=>r.deliveryType===t).reduce((a,r)=>a+r.qty,0),
+    value: Math.round(filteredPO.filter(r=>r.deliveryType===t).reduce((a,r)=>a+r.totalAmt,0)/1000),
   }));
 
-  // Notifications
-  const notifs = pendingPO.filter(r => ageDays(r.poDate) > 15);
+  // ── Supplier data ─────────────────────────────────────────────────────────
+  const supplierMap = {};
+  filteredPO.forEach(r=>{
+    if (!supplierMap[r.supplier]) supplierMap[r.supplier]={qty:0,value:0,pending:0};
+    supplierMap[r.supplier].qty     += r.qty;
+    supplierMap[r.supplier].value   += r.totalAmt;
+    supplierMap[r.supplier].pending += Math.max(0,r.qty-r.receivedQty);
+  });
+  const supplierData = Object.entries(supplierMap)
+    .map(([name,d])=>({name,...d,value:Math.round(d.value/1000)}))
+    .sort((a,b)=>b.value-a.value);
+
+  // ── Ageing ────────────────────────────────────────────────────────────────
+  const pendingPO  = filteredPO.filter(r=>r.status!=="Complete");
+  const ageGroups  = ["0–15 Days","16–30 Days","31–45 Days","46–60 Days","60+ Days"];
+  const ageData    = ageGroups.map(g=>({
+    name:  g,
+    count: pendingPO.filter(r=>ageBucket(ageDays(r.poDate)).label===g).length,
+  }));
+  const notifs = pendingPO.filter(r=>ageDays(r.poDate)>15);
+
+  const inputCls = `px-3 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-300
+    ${dark?"bg-gray-700 border-gray-600 text-white":"bg-white border-gray-200 text-gray-800"}`;
 
   return (
-  <div className="space-y-6">
+    <div className="space-y-6">
 
-    <div className={`rounded-xl p-4 border ${
-      dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"
-    }`}>
-      <div className="flex flex-wrap gap-3 items-end">
+      {/* ── FILTER BAR ────────────────────────────────────────────────────── */}
+      <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"}`}>
+        <div className="flex flex-wrap gap-3 items-end">
 
-        <div>
-          <label className="block text-xs mb-1">
-            From Date
-          </label>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className={`px-3 py-2 rounded-lg border ${
-              dark
-                ? "bg-gray-700 border-gray-600 text-white"
-                : "bg-white border-gray-200 text-gray-800"
-            }`}
-          />
+          {/* Month quick-select */}
+          <div>
+            <label className={`block text-xs mb-1 font-medium ${dark?"text-gray-400":"text-gray-500"}`}>
+              Month
+            </label>
+            <select className={inputCls} value={selMonth} onChange={e=>{setSelMonth(e.target.value);setFromDate("");setToDate("");}}>
+              {monthOptions.map(m=>(
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={`w-px h-8 self-center ${dark?"bg-gray-600":"bg-gray-200"}`} />
+
+          {/* Date range */}
+          <div>
+            <label className={`block text-xs mb-1 font-medium ${dark?"text-gray-400":"text-gray-500"}`}>From Date</label>
+            <input type="date" value={fromDate}
+              onChange={e=>{setFromDate(e.target.value);setSelMonth("All");}}
+              className={inputCls} />
+          </div>
+          <div>
+            <label className={`block text-xs mb-1 font-medium ${dark?"text-gray-400":"text-gray-500"}`}>To Date</label>
+            <input type="date" value={toDate}
+              onChange={e=>{setToDate(e.target.value);setSelMonth("All");}}
+              className={inputCls} />
+          </div>
+
+          {hasFilter && (
+            <button onClick={clearFilters}
+              className="px-4 py-2 rounded-lg text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors self-end">
+              ✕ Clear Filter
+            </button>
+          )}
+
+          {/* Active filter tag */}
+          {hasFilter && (
+            <div className={`self-end px-3 py-1.5 rounded-lg text-xs font-medium border
+              ${dark?"bg-indigo-900/30 border-indigo-700 text-indigo-300":"bg-indigo-50 border-indigo-200 text-indigo-700"}`}>
+              Showing {filteredPO.length} of {po.length} POs
+              {selMonth !== "All" ? ` · ${monthLabel(selMonth)}` : ""}
+              {fromDate ? ` · From ${fromDate}` : ""}
+              {toDate   ? ` · To ${toDate}` : ""}
+            </div>
+          )}
         </div>
-
-        <div>
-          <label className="block text-xs mb-1">
-            To Date
-          </label>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className={`px-3 py-2 rounded-lg border ${
-              dark
-                ? "bg-gray-700 border-gray-600 text-white"
-                : "bg-white border-gray-200 text-gray-800"
-            }`}
-          />
-        </div>
-
-        <button
-          onClick={() => {
-            setFromDate("");
-            setToDate("");
-          }}
-          className="px-4 py-2 bg-red-500 text-white rounded-lg"
-        >
-          Clear Filter
-        </button>
-
       </div>
-    </div>
-      {/* Notifications */}
+
+      {/* ── OVERDUE NOTIFICATION ──────────────────────────────────────────── */}
       {notifs.length > 0 && (
-        <div className={`rounded-xl p-3 border-l-4 border-red-500 ${dark ? "bg-red-900/20" : "bg-red-50"}`}>
-          <p className={`text-sm font-semibold ${dark ? "text-red-400" : "text-red-700"}`}>⚠ {notifs.length} POs overdue (15+ days pending)</p>
+        <div className={`rounded-xl p-3 border-l-4 border-red-500 ${dark?"bg-red-900/20":"bg-red-50"}`}>
+          <p className={`text-sm font-semibold ${dark?"text-red-400":"text-red-700"}`}>
+            ⚠ {notifs.length} POs overdue (15+ days pending)
+          </p>
           <div className="flex flex-wrap gap-2 mt-1">
-            {notifs.slice(0, 5).map((p, i) => (
-              <span key={p._rowId ?? i} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{p.poNo} — {ageDays(p.poDate)}d</span>
+            {notifs.slice(0,5).map((p,i)=>(
+              <span key={p.poNo??i} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                {p.poNo} — {ageDays(p.poDate)}d
+              </span>
             ))}
           </div>
         </div>
       )}
 
-      {/* KPI Grid */}
+      {/* ── KPI CARDS — Pending Qty is now CLICKABLE ──────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon="📦" label="Total PO Quantity" value={fmt(totalQty)} sub="units" color="#6366f1" dark={dark} />
-        <KpiCard icon="✅" label="Total Received" value={fmt(totalReceived)} sub="units" color="#16a34a" dark={dark} />
-        <KpiCard icon="⏳" label="Total Pending" value={fmt(totalPending)} sub="units" color="#ca8a04" dark={dark} />
-        <KpiCard icon="📉" label="Total Short" value={fmt(totalShort)} sub="units" color="#dc2626" dark={dark} />
-        <KpiCard icon="📈" label="Total Excess" value={fmt(totalExcess)} sub="units" color="#3b82f6" dark={dark} />
-        <KpiCard icon="💰" label="Total PO Value" value={fmtC(totalValue)} sub="incl. GST" color="#8b5cf6" dark={dark} />
-        <KpiCard icon="🧾" label="Total GST" value={fmtC(totalGST)} sub="payable" color="#06b6d4" dark={dark} />
-        <KpiCard icon="🏭" label="Suppliers" value={suppliers} sub="active" color="#f59e0b" dark={dark} />
+        <KpiCard icon="📦" label="Total PO Quantity"  value={fmt(totalQty)}      sub="units"    color="#6366f1" dark={dark} />
+        <KpiCard icon="✅" label="Total Received"     value={fmt(totalReceived)} sub="units"    color="#16a34a" dark={dark} />
+
+        {/* CLICKABLE — opens pending PO modal */}
+        <KpiCard
+          icon="⏳" label="Total Pending"
+          value={fmt(totalPending)} sub="units" color="#ca8a04" dark={dark}
+          clickable
+          onClick={()=>{ setModalTitle("Pending POs"); setModalOpen(true); }}
+        />
+        <KpiCard
+          icon="📉" label="Total Short"
+          value={fmt(totalShort)} sub="units" color="#dc2626" dark={dark}
+          clickable
+          onClick={()=>{ setModalTitle("Short POs (Partial Received)"); setModalOpen(true); }}
+        />
+
+        <KpiCard icon="📈" label="Total Excess"    value={fmt(totalExcess)} sub="units"    color="#3b82f6" dark={dark} />
+        <KpiCard icon="💰" label="Total PO Value"  value={fmtC(totalValue)} sub="incl. GST" color="#8b5cf6" dark={dark} />
+        <KpiCard icon="🧾" label="Total GST"       value={fmtC(totalGST)}   sub="payable"  color="#06b6d4" dark={dark} />
+        <KpiCard icon="🏭" label="Suppliers"       value={suppliers}         sub="active"   color="#f59e0b" dark={dark} />
       </div>
 
-      {/* Monthly Charts */}
-      <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-        <SectionHeader title="Monthly Procurement" sub="Quantity ordered vs received vs pending" dark={dark} />
-        <ResponsiveContainer width="100%" height={260}>
-          <ComposedChart data={monthlyData}>
-            <CartesianGrid strokeDasharray="3 3" stroke={dark ? "#374151" : "#f3f4f6"} />
-            <XAxis dataKey="month" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 12 }} />
-            <YAxis tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} />
-            <Tooltip contentStyle={{ background: dark ? "#1f2937" : "#fff", border: "1px solid #e5e7eb", borderRadius: 8 }} />
-            <Legend />
-            <Bar dataKey="ordered" name="Ordered" fill="#6366f1" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="received" name="Received" fill="#10b981" radius={[3, 3, 0, 0]} />
-            <Line type="monotone" dataKey="value" name="Value (₹K)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Delivery Type */}
-        <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-          <SectionHeader title="Delivery Type" sub="Distribution by type" dark={dark} />
-          <div className="space-y-3 mt-2">
-            {deliveryData.map(d => (
-              <div key={d.name}>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className={dark ? "text-gray-300" : "text-gray-600"}>{d.name}</span>
-                  <span className="font-semibold" style={{ color: DELIVERY_COLORS[d.name] }}>{d.count} POs · {fmt(d.qty)} units</span>
-                </div>
-                <div className={`h-2 rounded-full ${dark ? "bg-gray-700" : "bg-gray-100"}`}>
-                  <div className="h-2 rounded-full" style={{ width: `${(filteredPO.length ? (d.count / filteredPO.length) * 100 : 0)}%`, background: DELIVERY_COLORS[d.name] }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* PO Ageing */}
-        <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-          <SectionHeader title="Pending PO Ageing" sub="Overdue analysis" dark={dark} />
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={ageData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke={dark ? "#374151" : "#f3f4f6"} />
-              <XAxis type="number" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} />
-              <YAxis dataKey="name" type="category" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} width={80} />
-              <Tooltip contentStyle={{ background: dark ? "#1f2937" : "#fff", border: "1px solid #e5e7eb", borderRadius: 8 }} />
-              <Bar dataKey="count" name="PO Count" fill="#ef4444" radius={[0, 4, 4, 0]} />
-            </BarChart>
+      {/* ── MONTHLY CHART ─────────────────────────────────────────────────── */}
+      <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+        <SectionHeader
+          title={selMonth!=="All" ? `Monthly Procurement — ${monthLabel(selMonth)}` : "Monthly Procurement"}
+          sub="Ordered vs Received vs Pending · Value in ₹K (line)"
+          dark={dark}
+        />
+        {monthlyData.length === 0 ? (
+          <p className={`text-sm text-center py-8 ${dark?"text-gray-500":"text-gray-400"}`}>No data for selected period</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={dark?"#374151":"#f3f4f6"} />
+              <XAxis dataKey="label" tick={{ fill:dark?"#9ca3af":"#6b7280", fontSize:12 }} />
+              <YAxis yAxisId="qty" tick={{ fill:dark?"#9ca3af":"#6b7280", fontSize:11 }} />
+              <YAxis yAxisId="val" orientation="right" tick={{ fill:dark?"#9ca3af":"#6b7280", fontSize:11 }} />
+              <Tooltip contentStyle={{ background:dark?"#1f2937":"#fff", border:"1px solid #e5e7eb", borderRadius:8 }} />
+              <Legend />
+              <Bar    yAxisId="qty" dataKey="ordered"  name="Ordered"      fill="#6366f1" radius={[3,3,0,0]} />
+              <Bar    yAxisId="qty" dataKey="received" name="Received"     fill="#10b981" radius={[3,3,0,0]} />
+              <Bar    yAxisId="qty" dataKey="pending"  name="Pending"      fill="#f59e0b" radius={[3,3,0,0]} />
+              <Line  yAxisId="val" type="monotone" dataKey="value" name="Value (₹K)"
+                stroke="#8b5cf6" strokeWidth={2} dot={{ r:4 }} />
+            </ComposedChart>
           </ResponsiveContainer>
-        </div>
+        )}
       </div>
 
-      {/* Supplier Dashboard */}
-      <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-        <SectionHeader title="Supplier Performance" sub="Ranked by procurement value" dark={dark} />
+      {/* ── MONTH-WISE SUMMARY TABLE (new!) ───────────────────────────────── */}
+      <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+        <div className={`px-4 py-3 border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+          <h3 className={`text-sm font-semibold ${dark?"text-white":"text-gray-800"}`}>Month-wise Report</h3>
+          <p className={`text-xs mt-0.5 ${dark?"text-gray-400":"text-gray-500"}`}>Click any month to filter dashboard</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className={dark ? "border-b border-gray-700" : "border-b border-gray-100"}>
-                {["Rank", "Supplier", "Total Qty", "Pending Qty", "Value (₹K)", "Performance"].map(h => (
-                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>{h}</th>
+            <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+              <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+                {["Month","PO Count","Ordered Qty","Received Qty","Pending Qty","Short Qty","Procurement Value","Avg Rate Fill"].map(h=>(
+                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {supplierData.map((s, i) => {
-                const perf = Math.round(((s.qty - s.pending) / s.qty) * 100);
+              {monthlyData.length===0 && (
+                <tr><td colSpan={8} className="py-8 text-center text-sm text-gray-400">No data</td></tr>
+              )}
+              {monthlyData.map((m,i)=>{
+                const mpo = filteredPO.filter(r=>{
+                  const d = new Date(r.poDate);
+                  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}` === m.month;
+                });
+                const shortQty = mpo.filter(r=>r.receivedQty<r.qty&&r.receivedQty>0).reduce((a,r)=>a+(r.qty-r.receivedQty),0);
+                const fillRate = m.ordered ? Math.round((m.received/m.ordered)*100) : 0;
+                const isActive = selMonth===m.month;
                 return (
-                  <tr key={s.name} className={`border-b ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-gray-50"}`}>
-                    <td className="py-2 px-3">
-                      <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
-                        style={{ background: SUPPLIER_COLORS[i % 6] + "22", color: SUPPLIER_COLORS[i % 6] }}>#{i + 1}</span>
+                  <tr key={m.month}
+                    onClick={()=>setSelMonth(isActive?"All":m.month)}
+                    className={`border-b cursor-pointer transition-colors
+                      ${isActive
+                        ? dark?"bg-indigo-900/40 border-indigo-700":"bg-indigo-50 border-indigo-100"
+                        : dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
+                    <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>
+                      {isActive && <span className="mr-1 text-indigo-500">▶</span>}{m.label}
                     </td>
-                    <td className={`py-2 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>{s.name}</td>
-                    <td className={`py-2 px-3 ${dark ? "text-gray-300" : "text-gray-600"}`}>{fmt(s.qty)}</td>
-                    <td className="py-2 px-3">
-                      <span className={s.pending > 0 ? "text-red-500 font-medium" : "text-green-600"}>{fmt(s.pending)}</span>
+                    <td className={`py-2.5 px-3 text-center font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>
+                      {mpo.length}
                     </td>
-                    <td className={`py-2 px-3 font-semibold ${dark ? "text-indigo-400" : "text-indigo-600"}`}>₹{fmt(s.value)}K</td>
-                    <td className="py-2 px-3">
+                    <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>{fmt(m.ordered)}</td>
+                    <td className="py-2.5 px-3 text-right text-green-600 font-medium">{fmt(m.received)}</td>
+                    <td className={`py-2.5 px-3 text-right font-semibold ${m.pending>0?"text-amber-500":"text-green-600"}`}>
+                      {fmt(m.pending)}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right ${shortQty>0?"text-red-500 font-medium":dark?"text-gray-400":"text-gray-400"}`}>
+                      {fmt(shortQty)||"—"}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-emerald-400":"text-emerald-600"}`}>
+                      {fmtC(m.value*1000)}
+                    </td>
+                    <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
-                        <div className={`flex-1 h-1.5 rounded-full ${dark ? "bg-gray-700" : "bg-gray-100"}`}>
-                          <div className="h-1.5 rounded-full" style={{ width: `${perf}%`, background: perf > 80 ? "#16a34a" : perf > 50 ? "#ca8a04" : "#dc2626" }} />
+                        <div className={`flex-1 h-1.5 rounded-full ${dark?"bg-gray-700":"bg-gray-100"}`}>
+                          <div className="h-1.5 rounded-full" style={{
+                            width:`${fillRate}%`,
+                            background: fillRate>=90?"#16a34a":fillRate>=60?"#ca8a04":"#dc2626"
+                          }} />
                         </div>
-                        <span className="text-xs font-medium" style={{ color: perf > 80 ? "#16a34a" : perf > 50 ? "#ca8a04" : "#dc2626" }}>{perf}%</span>
+                        <span className="text-xs font-medium" style={{
+                          color: fillRate>=90?"#16a34a":fillRate>=60?"#ca8a04":"#dc2626"
+                        }}>{fillRate}%</span>
                       </div>
                     </td>
                   </tr>
@@ -394,109 +544,214 @@ function Dashboard({ po, receipts, dark }) {
           </table>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Delivery Type */}
+        <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+          <SectionHeader title="Delivery Type" sub="Distribution by type" dark={dark} />
+          <div className="space-y-3 mt-2">
+            {deliveryData.map(d=>(
+              <div key={d.name}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className={dark?"text-gray-300":"text-gray-600"}>{d.name}</span>
+                  <span className="font-semibold" style={{color:DELIVERY_COLORS[d.name]}}>
+                    {d.count} POs · {fmt(d.qty)} units
+                  </span>
+                </div>
+                <div className={`h-2 rounded-full ${dark?"bg-gray-700":"bg-gray-100"}`}>
+                  <div className="h-2 rounded-full" style={{
+                    width:`${filteredPO.length?(d.count/filteredPO.length)*100:0}%`,
+                    background:DELIVERY_COLORS[d.name]
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* PO Ageing */}
+        <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+          <SectionHeader title="Pending PO Ageing" sub="Click bars to view PO details" dark={dark} />
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={ageData} layout="vertical"
+              onClick={()=>{ setModalTitle("Pending POs — Ageing Detail"); setModalOpen(true); }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={dark?"#374151":"#f3f4f6"} />
+              <XAxis type="number" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}} />
+              <YAxis dataKey="name" type="category" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}} width={80} />
+              <Tooltip contentStyle={{background:dark?"#1f2937":"#fff",border:"1px solid #e5e7eb",borderRadius:8}} />
+              <Bar dataKey="count" name="PO Count" fill="#ef4444" radius={[0,4,4,0]} cursor="pointer" />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className={`text-xs mt-2 text-center ${dark?"text-gray-500":"text-gray-400"}`}>
+            Click chart to see all pending POs →
+          </p>
+        </div>
+      </div>
+
+      {/* Supplier Dashboard */}
+      <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+        <SectionHeader title="Supplier Performance" sub="Ranked by procurement value" dark={dark} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className={dark?"border-b border-gray-700":"border-b border-gray-100"}>
+                {["Rank","Supplier","Total Qty","Pending Qty","Value (₹K)","Fill Rate"].map(h=>(
+                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {supplierData.map((s,i)=>{
+                const perf = s.qty ? Math.round(((s.qty-s.pending)/s.qty)*100) : 0;
+                return (
+                  <tr key={s.name} className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
+                    <td className="py-2 px-3">
+                      <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
+                        style={{background:SUPPLIER_COLORS[i%6]+"22",color:SUPPLIER_COLORS[i%6]}}>#{i+1}</span>
+                    </td>
+                    <td className={`py-2 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{s.name}</td>
+                    <td className={`py-2 px-3 ${dark?"text-gray-300":"text-gray-600"}`}>{fmt(s.qty)}</td>
+                    <td className="py-2 px-3">
+                      <button
+                        onClick={()=>{ setModalTitle(`Pending POs — ${s.name}`); setModalOpen(true); }}
+                        className={`font-medium text-xs underline decoration-dotted
+                          ${s.pending>0?"text-red-500 hover:text-red-400":"text-green-600"}`}>
+                        {fmt(s.pending)}
+                        {s.pending>0 && " →"}
+                      </button>
+                    </td>
+                    <td className={`py-2 px-3 font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>₹{fmt(s.value)}K</td>
+                    <td className="py-2 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className={`flex-1 h-1.5 rounded-full ${dark?"bg-gray-700":"bg-gray-100"}`}>
+                          <div className="h-1.5 rounded-full" style={{
+                            width:`${perf}%`,
+                            background:perf>80?"#16a34a":perf>50?"#ca8a04":"#dc2626"
+                          }} />
+                        </div>
+                        <span className="text-xs font-medium" style={{color:perf>80?"#16a34a":perf>50?"#ca8a04":"#dc2626"}}>{perf}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal */}
+      {modalOpen && (
+        <PendingModal
+          po={filteredPO}
+          title={modalTitle}
+          dark={dark}
+          onClose={()=>setModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-// ─── PO TABLE ─────────────────────────────────────────────────────────────────
+// ─── PO TABLE (unchanged from v1) ─────────────────────────────────────────────
 function POTable({ po, dark }) {
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [search, setSearch]               = useState("");
+  const [filterStatus, setFilterStatus]   = useState("All");
   const [filterDelivery, setFilterDelivery] = useState("All");
   const [filterSupplier, setFilterSupplier] = useState("All");
-  const [sortKey, setSortKey] = useState("poDate");
-  const [sortDir, setSortDir] = useState("desc");
-  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey]             = useState("poDate");
+  const [sortDir, setSortDir]             = useState("desc");
+  const [page, setPage]                   = useState(1);
   const PER_PAGE = 8;
 
-  const suppliers = useMemo(() => ["All", ...new Set(po.map(r => r.supplier))], [po]);
+  const suppliers = useMemo(()=>["All",...new Set(po.map(r=>r.supplier))],[po]);
 
-  const filtered = useMemo(() => {
-    let d = po.filter(r => {
+  const filtered = useMemo(()=>{
+    let d = po.filter(r=>{
       const q = search.toLowerCase();
-      const matchSearch = !q || r.poNo.toLowerCase().includes(q) || r.supplier.toLowerCase().includes(q) || r.item.toLowerCase().includes(q);
-      const matchStatus = filterStatus === "All" || r.status === filterStatus;
-      const matchDelivery = filterDelivery === "All" || r.deliveryType === filterDelivery;
-      const matchSupplier = filterSupplier === "All" || r.supplier === filterSupplier;
-      return matchSearch && matchStatus && matchDelivery && matchSupplier;
+      const ms = !q || r.poNo.toLowerCase().includes(q)||r.supplier.toLowerCase().includes(q)||r.item.toLowerCase().includes(q);
+      const mst = filterStatus==="All"||r.status===filterStatus;
+      const md  = filterDelivery==="All"||r.deliveryType===filterDelivery;
+      const msp = filterSupplier==="All"||r.supplier===filterSupplier;
+      return ms&&mst&&md&&msp;
     });
-    d.sort((a, b) => {
-      let av = a[sortKey], bv = b[sortKey];
-      if (typeof av === "string") av = av.toLowerCase(), bv = bv.toLowerCase();
-      return sortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+    d.sort((a,b)=>{
+      let av=a[sortKey],bv=b[sortKey];
+      if(typeof av==="string"){av=av.toLowerCase();bv=bv.toLowerCase();}
+      return sortDir==="asc"?(av>bv?1:-1):(av<bv?1:-1);
     });
     return d;
-  }, [po, search, filterStatus, filterDelivery, filterSupplier, sortKey, sortDir]);
+  },[po,search,filterStatus,filterDelivery,filterSupplier,sortKey,sortDir]);
 
-  const pages = Math.ceil(filtered.length / PER_PAGE);
-  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const pages = Math.ceil(filtered.length/PER_PAGE);
+  const paged = filtered.slice((page-1)*PER_PAGE,page*PER_PAGE);
 
-  const th = (key, label) => (
-    <th key={key} className={`text-left py-2 px-3 text-xs font-semibold cursor-pointer select-none ${dark ? "text-gray-400 hover:text-gray-200" : "text-gray-500 hover:text-gray-700"}`}
-      onClick={() => { setSortKey(key); setSortDir(k => k === "asc" ? "desc" : "asc"); }}>
-      {label} {sortKey === key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+  const th=(key,label)=>(
+    <th key={key}
+      className={`text-left py-2 px-3 text-xs font-semibold cursor-pointer select-none
+        ${dark?"text-gray-400 hover:text-gray-200":"text-gray-500 hover:text-gray-700"}`}
+      onClick={()=>{setSortKey(key);setSortDir(k=>k==="asc"?"desc":"asc");}}>
+      {label}{sortKey===key?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
 
-  const input = `px-3 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-300 ${dark ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-200 text-gray-800"}`;
+  const input=`px-3 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-300
+    ${dark?"bg-gray-700 border-gray-600 text-white":"bg-white border-gray-200 text-gray-800"}`;
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
-        <input className={`${input} flex-1 min-w-48`} placeholder="🔍 Search PO, supplier, item..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-        <select className={input} value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}>
-          {["All", "Complete", "Partial", "Pending"].map(s => <option key={s}>{s}</option>)}
+        <input className={`${input} flex-1 min-w-48`} placeholder="🔍 Search PO, supplier, item..."
+          value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} />
+        <select className={input} value={filterStatus}   onChange={e=>{setFilterStatus(e.target.value);setPage(1);}}>
+          {["All","Complete","Partial","Pending"].map(s=><option key={s}>{s}</option>)}
         </select>
-        <select className={input} value={filterDelivery} onChange={e => { setFilterDelivery(e.target.value); setPage(1); }}>
-          {["All", "Regular", "Urgent Rail", "Urgent Air"].map(s => <option key={s}>{s}</option>)}
+        <select className={input} value={filterDelivery} onChange={e=>{setFilterDelivery(e.target.value);setPage(1);}}>
+          {["All","Regular","Urgent Rail","Urgent Air"].map(s=><option key={s}>{s}</option>)}
         </select>
-        <select className={input} value={filterSupplier} onChange={e => { setFilterSupplier(e.target.value); setPage(1); }}>
-          {suppliers.map(s => <option key={s}>{s}</option>)}
+        <select className={input} value={filterSupplier} onChange={e=>{setFilterSupplier(e.target.value);setPage(1);}}>
+          {suppliers.map(s=><option key={s}>{s}</option>)}
         </select>
-        <span className={`text-xs px-2 py-1 rounded-lg ${dark ? "bg-gray-700 text-gray-300" : "bg-gray-100 text-gray-500"}`}>{filtered.length} records</span>
+        <span className={`text-xs px-2 py-1 rounded-lg ${dark?"bg-gray-700 text-gray-300":"bg-gray-100 text-gray-500"}`}>
+          {filtered.length} records
+        </span>
       </div>
 
-      {/* Table */}
-      <div className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+      <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[900px]">
-            <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
-              <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
-                {th("poDate", "PO Date")}
-                {th("poNo", "PO No")}
-                {th("supplier", "Supplier")}
-                {th("item", "Item")}
-                {th("qty", "Ordered")}
-                {th("receivedQty", "Received")}
-                <th className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>Short/Excess</th>
-                {th("deliveryType", "Delivery")}
-                {th("totalAmt", "Value")}
-                {th("status", "Status")}
-                <th className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>Age</th>
+            <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+              <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+                {th("poDate","PO Date")}{th("poNo","PO No")}{th("supplier","Supplier")}{th("item","Item")}
+                {th("qty","Ordered")}{th("receivedQty","Received")}
+                <th className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>Short/Excess</th>
+                {th("deliveryType","Delivery")}{th("totalAmt","Value")}{th("status","Status")}
+                <th className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>Age</th>
               </tr>
             </thead>
             <tbody>
-              {paged.length === 0 && (
-                <tr><td colSpan={12} className={`py-10 text-center text-sm ${dark ? "text-gray-500" : "text-gray-400"}`}>No records found. Adjust your filters.</td></tr>
+              {paged.length===0&&(
+                <tr><td colSpan={12} className={`py-10 text-center text-sm ${dark?"text-gray-500":"text-gray-400"}`}>No records found.</td></tr>
               )}
-              {paged.map((r) => (
-                <tr key={r._rowId ?? r.poNo} className={`border-b transition-colors ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-indigo-50/30"}`}>
-                  <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{r.poDate}</td>
-                  <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark ? "text-indigo-400" : "text-indigo-600"}`}>{r.poNo}</td>
-                  <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>{r.supplier}</td>
-                  <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-300" : "text-gray-600"}`}>{r.item || <span className="text-gray-400 italic">No item (PO not created)</span>}</td>
-                  <td className={`py-2.5 px-3 text-right font-medium ${dark ? "text-gray-200" : "text-gray-700"}`}>{fmt(r.qty)}</td>
-                  <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-200" : "text-gray-700"}`}>{fmt(r.receivedQty)}</td>
+              {paged.map(r=>(
+                <tr key={r.poNo}
+                  className={`border-b transition-colors ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-indigo-50/30"}`}>
+                  <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{r.poDate}</td>
+                  <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>{r.poNo}</td>
+                  <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{r.supplier}</td>
+                  <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.item}</td>
+                  <td className={`py-2.5 px-3 text-right font-medium ${dark?"text-gray-200":"text-gray-700"}`}>{fmt(r.qty)}</td>
+                  <td className={`py-2.5 px-3 text-right ${dark?"text-gray-200":"text-gray-700"}`}>{fmt(r.receivedQty)}</td>
                   <td className="py-2.5 px-3"><ShortExcess ordered={r.qty} received={r.receivedQty} /></td>
                   <td className="py-2.5 px-3">
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: (DELIVERY_COLORS[r.deliveryType] || "#6b7280") + "22", color: DELIVERY_COLORS[r.deliveryType] || "#6b7280" }}>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                      style={{background:(DELIVERY_COLORS[r.deliveryType]||"#6b7280")+"22",color:DELIVERY_COLORS[r.deliveryType]||"#6b7280"}}>
                       {r.deliveryType}
                     </span>
                   </td>
-                  <td className={`py-2.5 px-3 text-right text-xs font-semibold ${dark ? "text-emerald-400" : "text-emerald-600"}`}>{fmtC(r.totalAmt)}</td>
+                  <td className={`py-2.5 px-3 text-right text-xs font-semibold ${dark?"text-emerald-400":"text-emerald-600"}`}>{fmtC(r.totalAmt)}</td>
                   <td className="py-2.5 px-3"><Badge status={r.status} /></td>
-                  <td className="py-2.5 px-3">{r.status !== "Complete" ? <AgeBadge days={ageDays(r.poDate)} /> : <span className="text-xs text-gray-400">—</span>}</td>
+                  <td className="py-2.5 px-3">{r.status!=="Complete"?<AgeBadge days={ageDays(r.poDate)}/>:<span className="text-xs text-gray-400">—</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -504,19 +759,19 @@ function POTable({ po, dark }) {
         </div>
       </div>
 
-      {/* Pagination */}
-      {pages > 1 && (
+      {pages>1&&(
         <div className="flex items-center justify-between">
-          <span className={`text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>Page {page} of {pages}</span>
+          <span className={`text-xs ${dark?"text-gray-400":"text-gray-500"}`}>Page {page} of {pages}</span>
           <div className="flex gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className={`px-3 py-1 rounded-lg text-xs border ${dark ? "bg-gray-700 border-gray-600 text-gray-300 disabled:opacity-40" : "bg-white border-gray-200 text-gray-600 disabled:opacity-40"}`}>← Prev</button>
-            {Array.from({ length: Math.min(pages, 5) }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)}
-                className={`px-3 py-1 rounded-lg text-xs border font-medium ${p === page ? "bg-indigo-600 border-indigo-600 text-white" : dark ? "bg-gray-700 border-gray-600 text-gray-300" : "bg-white border-gray-200 text-gray-600"}`}>{p}</button>
+            <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}
+              className={`px-3 py-1 rounded-lg text-xs border ${dark?"bg-gray-700 border-gray-600 text-gray-300 disabled:opacity-40":"bg-white border-gray-200 text-gray-600 disabled:opacity-40"}`}>← Prev</button>
+            {Array.from({length:Math.min(pages,5)},(_,i)=>i+1).map(p=>(
+              <button key={p} onClick={()=>setPage(p)}
+                className={`px-3 py-1 rounded-lg text-xs border font-medium
+                  ${p===page?"bg-indigo-600 border-indigo-600 text-white":dark?"bg-gray-700 border-gray-600 text-gray-300":"bg-white border-gray-200 text-gray-600"}`}>{p}</button>
             ))}
-            <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
-              className={`px-3 py-1 rounded-lg text-xs border ${dark ? "bg-gray-700 border-gray-600 text-gray-300 disabled:opacity-40" : "bg-white border-gray-200 text-gray-600 disabled:opacity-40"}`}>Next →</button>
+            <button onClick={()=>setPage(p=>Math.min(pages,p+1))} disabled={page===pages}
+              className={`px-3 py-1 rounded-lg text-xs border ${dark?"bg-gray-700 border-gray-600 text-gray-300 disabled:opacity-40":"bg-white border-gray-200 text-gray-600 disabled:opacity-40"}`}>Next →</button>
           </div>
         </div>
       )}
@@ -527,27 +782,27 @@ function POTable({ po, dark }) {
 // ─── RECEIPTS TABLE ───────────────────────────────────────────────────────────
 function ReceiptsTable({ receipts, dark }) {
   return (
-    <div className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+    <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
-            <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
-              {["Date", "PO No", "Voucher No", "Supplier", "Item", "Received Qty", "Rate", "Value"].map(h => (
-                <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>{h}</th>
+          <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+            <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+              {["Date","PO No","Voucher No","Supplier","Item","Received Qty","Rate","Value"].map(h=>(
+                <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {receipts.map((r, i) => (
-              <tr key={i} className={`border-b ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-gray-50"}`}>
-                <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{r.date}</td>
-                <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark ? "text-indigo-400" : "text-indigo-600"}`}>{r.poNo}</td>
-                <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-300" : "text-gray-600"}`}>{r.voucherNo}</td>
-                <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>{r.supplier}</td>
-                <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-300" : "text-gray-600"}`}>{r.item}</td>
-                <td className={`py-2.5 px-3 text-right font-semibold ${dark ? "text-green-400" : "text-green-600"}`}>{fmt(r.receivedQty)}</td>
-                <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-300" : "text-gray-600"}`}>{fmtC(r.rate)}</td>
-                <td className={`py-2.5 px-3 text-right font-semibold ${dark ? "text-emerald-400" : "text-emerald-600"}`}>{fmtC(r.receivedQty * r.rate)}</td>
+            {receipts.map((r,i)=>(
+              <tr key={i} className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
+                <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{r.date}</td>
+                <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>{r.poNo}</td>
+                <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.voucherNo}</td>
+                <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{r.supplier}</td>
+                <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.item}</td>
+                <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-green-400":"text-green-600"}`}>{fmt(r.receivedQty)}</td>
+                <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>{fmtC(r.rate)}</td>
+                <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-emerald-400":"text-emerald-600"}`}>{fmtC(r.receivedQty*r.rate)}</td>
               </tr>
             ))}
           </tbody>
@@ -559,78 +814,74 @@ function ReceiptsTable({ receipts, dark }) {
 
 // ─── RATE HISTORY ─────────────────────────────────────────────────────────────
 function RateHistory({ rates, dark }) {
-  const items = [...new Set(rates.map(r => r.item))];
-  const suppliers = [...new Set(rates.map(r => r.supplier))];
-  const [selItem, setSelItem] = useState(items[0] || "");
+  const items     = [...new Set(rates.map(r=>r.item))];
+  const suppliers = [...new Set(rates.map(r=>r.supplier))];
+  const [selItem,     setSelItem]     = useState(items[0]||"");
   const [selSupplier, setSelSupplier] = useState("All");
 
-  const filtered = rates.filter(r =>
-    r.item === selItem && (selSupplier === "All" || r.supplier === selSupplier)
-  ).sort((a, b) => a.date.localeCompare(b.date));
-
-  const chartData = filtered.map(r => ({ date: r.date.slice(5), rate: r.newRate }));
-  const input = `px-3 py-1.5 rounded-lg text-sm border outline-none ${dark ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-200 text-gray-800"}`;
+  const filtered = rates.filter(r=>r.item===selItem&&(selSupplier==="All"||r.supplier===selSupplier))
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  const chartData = filtered.map(r=>({date:r.date.slice(5),rate:r.newRate}));
+  const input=`px-3 py-1.5 rounded-lg text-sm border outline-none ${dark?"bg-gray-700 border-gray-600 text-white":"bg-white border-gray-200 text-gray-800"}`;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <select className={input} value={selItem} onChange={e => setSelItem(e.target.value)}>
-          {items.map(i => <option key={i}>{i}</option>)}
+        <select className={input} value={selItem}     onChange={e=>setSelItem(e.target.value)}>
+          {items.map(i=><option key={i}>{i}</option>)}
         </select>
-        <select className={input} value={selSupplier} onChange={e => setSelSupplier(e.target.value)}>
-          {["All", ...suppliers].map(s => <option key={s}>{s}</option>)}
+        <select className={input} value={selSupplier} onChange={e=>setSelSupplier(e.target.value)}>
+          {["All",...suppliers].map(s=><option key={s}>{s}</option>)}
         </select>
       </div>
 
-      {/* Rate Trend Chart */}
-      {chartData.length > 0 && (
-        <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-          <p className={`text-sm font-semibold mb-3 ${dark ? "text-white" : "text-gray-800"}`}>Rate trend — {selItem}</p>
+      {chartData.length>0&&(
+        <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+          <p className={`text-sm font-semibold mb-3 ${dark?"text-white":"text-gray-800"}`}>Rate trend — {selItem}</p>
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={dark ? "#374151" : "#f3f4f6"} />
-              <XAxis dataKey="date" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} />
-              <YAxis tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: dark ? "#1f2937" : "#fff", border: "1px solid #e5e7eb", borderRadius: 8 }} />
-              <Area type="monotone" dataKey="rate" name="Rate (₹)" stroke="#6366f1" strokeWidth={2} fill="url(#rateGrad)" dot={{ r: 4 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={dark?"#374151":"#f3f4f6"}/>
+              <XAxis dataKey="date" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}}/>
+              <YAxis tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}}/>
+              <Tooltip contentStyle={{background:dark?"#1f2937":"#fff",border:"1px solid #e5e7eb",borderRadius:8}}/>
+              <Area type="monotone" dataKey="rate" name="Rate (₹)" stroke="#6366f1" strokeWidth={2} fill="url(#rateGrad)" dot={{r:4}}/>
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Rate History Table */}
-      <div className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+      <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
-              <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
-                {["Date", "Supplier", "Item", "Old Rate", "New Rate", "Change", "Change %"].map(h => (
-                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>{h}</th>
+            <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+              <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+                {["Date","Supplier","Item","Old Rate","New Rate","Change","Change %"].map(h=>(
+                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={7} className={`py-8 text-center text-sm ${dark ? "text-gray-500" : "text-gray-400"}`}>No rate history found.</td></tr>
+              {filtered.length===0&&(
+                <tr><td colSpan={7} className={`py-8 text-center text-sm ${dark?"text-gray-500":"text-gray-400"}`}>No rate history found.</td></tr>
               )}
-              {filtered.map((r, i) => {
-                const diff = r.newRate - r.oldRate;
-                const pct = ((diff / r.oldRate) * 100).toFixed(2);
-                return (
-                  <tr key={i} className={`border-b ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-gray-50"}`}>
-                    <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{r.date}</td>
-                    <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>{r.supplier}</td>
-                    <td className={`py-2.5 px-3 text-xs ${dark ? "text-gray-300" : "text-gray-600"}`}>{r.item}</td>
-                    <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-300" : "text-gray-600"}`}>₹{r.oldRate}</td>
-                    <td className={`py-2.5 px-3 text-right font-semibold ${dark ? "text-white" : "text-gray-800"}`}>₹{r.newRate}</td>
-                    <td className={`py-2.5 px-3 text-right font-semibold ${diff >= 0 ? "text-red-500" : "text-green-600"}`}>{diff >= 0 ? "+" : ""}{diff}</td>
-                    <td className={`py-2.5 px-3 text-right text-xs font-medium ${diff >= 0 ? "text-red-500" : "text-green-600"}`}>{diff >= 0 ? "+" : ""}{pct}%</td>
+              {filtered.map((r,i)=>{
+                const diff=r.newRate-r.oldRate;
+                const pct=((diff/r.oldRate)*100).toFixed(2);
+                return(
+                  <tr key={i} className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
+                    <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{r.date}</td>
+                    <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{r.supplier}</td>
+                    <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.item}</td>
+                    <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>₹{r.oldRate}</td>
+                    <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-white":"text-gray-800"}`}>₹{r.newRate}</td>
+                    <td className={`py-2.5 px-3 text-right font-semibold ${diff>=0?"text-red-500":"text-green-600"}`}>{diff>=0?"+":""}{diff}</td>
+                    <td className={`py-2.5 px-3 text-right text-xs font-medium ${diff>=0?"text-red-500":"text-green-600"}`}>{diff>=0?"+":""}{pct}%</td>
                   </tr>
                 );
               })}
@@ -652,59 +903,14 @@ function ExcelUpload({ onUpload, dark }) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = XLSX.read(e.target.result, { type: "binary", cellDates: true });
-
-        // Find the sheet that actually looks like PO data, by header match —
-        // rather than assuming sheet order, since real exports may only have
-        // a single "PO_Data" sheet (no separate Receipts / Rate History tabs).
-        let poRows = [];
-        let foundSheet = null;
-        for (const name of wb.SheetNames) {
-          const json = XLSX.utils.sheet_to_json(wb.Sheets[name]);
-          if (json.length === 0) continue;
-          const keys = Object.keys(json[0]).map(k => k.trim());
-          const looksLikePO = keys.some(k =>
-            ["P.O No.", "poNo", "Items", "item", "Supplier Name", "supplier"].includes(k)
-          );
-          if (looksLikePO) { poRows = json; foundSheet = name; break; }
-        }
-
-        if (!foundSheet) {
-          setMsg("❌ Couldn't find a PO data sheet. Expected columns like 'P.O No.', 'Supplier Name', 'Items'.");
-          return;
-        }
-
-        const mapped = mapPORows(poRows);
-        if (mapped.length === 0) {
-          setMsg("❌ Sheet found but no usable rows after parsing. Check the file isn't empty or malformed.");
-          return;
-        }
-
-        // Receipts / Rate History sheets — matched by recognisable name
-        // first (real export uses "Recvd_Item" and "Rate Update"; a
-        // "Report" pivot-summary sheet, if present, is intentionally
-        // skipped since it has no usable row-level data). Falls back to
-        // positional sheets for older/simple templates.
-        const byName = (patterns) => wb.SheetNames.find(n => patterns.some(p => p.test(n)));
-        const recSheetName = byName([/recv/i, /receipt/i]);
-        const rateSheetName = byName([/rate/i]);
-        const otherSheets = wb.SheetNames.filter(n =>
-          n !== foundSheet && !/report/i.test(n)
-        );
-
-        const recRaw = recSheetName ? XLSX.utils.sheet_to_json(wb.Sheets[recSheetName])
-          : (otherSheets[0] ? XLSX.utils.sheet_to_json(wb.Sheets[otherSheets[0]]) : []);
-        const ratRaw = rateSheetName ? XLSX.utils.sheet_to_json(wb.Sheets[rateSheetName])
-          : (otherSheets[1] ? XLSX.utils.sheet_to_json(wb.Sheets[otherSheets[1]]) : []);
-
-        const rec = mapReceiptRows(recRaw);
-        const rat = mapRateRows(ratRaw);
-
-        onUpload({ po: mapped, receipts: rec, rates: rat });
-        const skipped = poRows.length - mapped.length;
-        setMsg(`✅ Imported ${mapped.length} line items from "${foundSheet}"${rec.length ? `, ${rec.length} receipts` : ""}${rat.length ? `, ${rat.length} rate records` : ""}${skipped ? ` (${skipped} blank/cancelled rows skipped)` : ""}.`);
-      } catch (err) {
-        setMsg("❌ Error reading file: " + (err?.message || "unknown error"));
+        const wb = XLSX.read(e.target.result, { type:"binary", cellDates:true });
+        const po  = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]||{});
+        const rec = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[1]]||{});
+        const rat = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[2]]||{});
+        onUpload({ po, receipts:rec, rates:rat });
+        setMsg(`✅ Imported: ${po.length} POs, ${rec.length} receipts, ${rat.length} rate records`);
+      } catch(err) {
+        setMsg("❌ Error: "+err.message);
       }
     };
     reader.readAsBinaryString(file);
@@ -713,20 +919,20 @@ function ExcelUpload({ onUpload, dark }) {
   return (
     <div className="space-y-4 max-w-xl mx-auto mt-8">
       <div
-        onDragOver={e => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); parse(e.dataTransfer.files[0]); }}
-        className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${dragging ? "border-indigo-400 bg-indigo-50" : dark ? "border-gray-600 bg-gray-800 hover:border-gray-500" : "border-gray-200 bg-gray-50 hover:border-indigo-300"}`}
-        onClick={() => document.getElementById("xl-input").click()}
-      >
+        onDragOver={e=>{e.preventDefault();setDragging(true);}}
+        onDragLeave={()=>setDragging(false)}
+        onDrop={e=>{e.preventDefault();setDragging(false);parse(e.dataTransfer.files[0]);}}
+        className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all
+          ${dragging?"border-indigo-400 bg-indigo-50":dark?"border-gray-600 bg-gray-800 hover:border-gray-500":"border-gray-200 bg-gray-50 hover:border-indigo-300"}`}
+        onClick={()=>document.getElementById("xl-input").click()}>
         <div className="text-5xl mb-3">📊</div>
-        <p className={`font-semibold text-base ${dark ? "text-white" : "text-gray-700"}`}>Drop your Excel file here</p>
-        <p className={`text-sm mt-1 ${dark ? "text-gray-400" : "text-gray-400"}`}>or click to browse · .xlsx / .xls</p>
-        <p className={`text-xs mt-3 ${dark ? "text-gray-500" : "text-gray-400"}`}>Auto-detects PP Auto PO_Data export format or the dashboard's own template</p>
+        <p className={`font-semibold text-base ${dark?"text-white":"text-gray-700"}`}>Drop your Excel file here</p>
+        <p className={`text-sm mt-1 ${dark?"text-gray-400":"text-gray-400"}`}>or click to browse · .xlsx / .xls</p>
+        <p className={`text-xs mt-3 ${dark?"text-gray-500":"text-gray-400"}`}>Sheet 1: PO Master · Sheet 2: Receipts · Sheet 3: Rate History</p>
       </div>
-      <input id="xl-input" type="file" accept=".xlsx,.xls" className="hidden" onChange={e => parse(e.target.files[0])} />
-      {msg && <p className={`text-sm text-center ${msg.startsWith("✅") ? "text-green-600" : "text-red-500"}`}>{msg}</p>}
-      <p className={`text-xs text-center ${dark ? "text-gray-500" : "text-gray-400"}`}>Currently showing sample data. Upload your Excel to replace.</p>
+      <input id="xl-input" type="file" accept=".xlsx,.xls" className="hidden"
+        onChange={e=>parse(e.target.files[0])} />
+      {msg&&<p className={`text-sm text-center ${msg.startsWith("✅")?"text-green-600":"text-red-500"}`}>{msg}</p>}
     </div>
   );
 }
@@ -734,138 +940,58 @@ function ExcelUpload({ onUpload, dark }) {
 // ─── ITEM DASHBOARD ───────────────────────────────────────────────────────────
 function ItemDashboard({ po, dark }) {
   const [selectedItem, setSelectedItem] = useState(null);
-
   const itemMap = {};
-
-  po.forEach(r => {
-    if (!itemMap[r.item]) {
-      itemMap[r.item] = {
-        qty: 0,
-        received: 0,
-        pending: 0,
-        spend: 0
-      };
-    }
-
-    itemMap[r.item].qty += r.qty;
+  po.forEach(r=>{
+    if (!itemMap[r.item]) itemMap[r.item]={qty:0,received:0,pending:0,spend:0};
+    itemMap[r.item].qty      += r.qty;
     itemMap[r.item].received += r.receivedQty;
-    itemMap[r.item].pending += Math.max(0, r.qty - r.receivedQty);
-    itemMap[r.item].spend += r.totalAmt;
+    itemMap[r.item].pending  += Math.max(0,r.qty-r.receivedQty);
+    itemMap[r.item].spend    += r.totalAmt;
   });
-
   const data = Object.entries(itemMap)
-    .map(([name, d]) => ({
-      fullName: name,
-      name: name.length > 18 ? name.slice(0, 18) + "…" : name,
-      ...d,
-      spend: Math.round(d.spend / 1000)
-    }))
-    .sort((a, b) => b.spend - a.spend)
-    .slice(0, 10);
+    .map(([name,d])=>({fullName:name,name:name.length>18?name.slice(0,18)+"…":name,...d,spend:Math.round(d.spend/1000)}))
+    .sort((a,b)=>b.spend-a.spend).slice(0,10);
 
   return (
     <div className="space-y-4">
-
-      <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
-        <SectionHeader
-          title="Top 10 Items by Spend"
-          sub="Procurement value in ₹K"
-          dark={dark}
-        />
-
+      <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+        <SectionHeader title="Top 10 Items by Spend" sub="Procurement value in ₹K · Click row to drill down" dark={dark} />
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={data} layout="vertical">
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={dark ? "#374151" : "#f3f4f6"}
-            />
-            <XAxis
-              type="number"
-              tick={{
-                fill: dark ? "#9ca3af" : "#6b7280",
-                fontSize: 11
-              }}
-            />
-            <YAxis
-              dataKey="name"
-              type="category"
-              tick={{
-                fill: dark ? "#9ca3af" : "#6b7280",
-                fontSize: 10
-              }}
-              width={120}
-            />
-            <Tooltip
-              contentStyle={{
-                background: dark ? "#1f2937" : "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: 8
-              }}
-              formatter={v => "₹" + fmt(v) + "K"}
-            />
-            <Legend />
-            <Bar
-              dataKey="spend"
-              name="Spend (₹K)"
-              fill="#6366f1"
-              radius={[0, 4, 4, 0]}
-            />
+            <CartesianGrid strokeDasharray="3 3" stroke={dark?"#374151":"#f3f4f6"}/>
+            <XAxis type="number" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}}/>
+            <YAxis dataKey="name" type="category" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:10}} width={120}/>
+            <Tooltip contentStyle={{background:dark?"#1f2937":"#fff",border:"1px solid #e5e7eb",borderRadius:8}} formatter={v=>"₹"+fmt(v)+"K"}/>
+            <Legend/>
+            <Bar dataKey="spend" name="Spend (₹K)" fill="#6366f1" radius={[0,4,4,0]}/>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+      <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
-              <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
-                {["Item", "Ordered Qty", "Received Qty", "Pending Qty", "Spend (₹K)"].map(h => (
-                  <th
-                    key={h}
-                    className={`text-left py-2 px-3 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}
-                  >
-                    {h}
-                  </th>
+            <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+              <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+                {["Item","Ordered Qty","Received Qty","Pending Qty","Spend (₹K)"].map(h=>(
+                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
-
             <tbody>
-              {data.map((r, i) => (
-                <tr
-                  key={i}
-                  onClick={() => setSelectedItem(r.fullName)}
-                  className={`cursor-pointer border-b ${
-                    dark
-                      ? "border-gray-700/50 hover:bg-gray-700/30"
-                      : "border-gray-50 hover:bg-blue-50"
-                  }`}
-                >
-                  <td className={`py-2.5 px-3 font-medium ${dark ? "text-white" : "text-gray-800"}`}>
-                    {r.name}
+              {data.map((r,i)=>(
+                <tr key={i} onClick={()=>setSelectedItem(r.fullName===selectedItem?null:r.fullName)}
+                  className={`border-b cursor-pointer transition-colors
+                    ${r.fullName===selectedItem
+                      ?dark?"bg-indigo-900/40":"bg-indigo-50"
+                      :dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-blue-50"}`}>
+                  <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>
+                    {r.fullName===selectedItem&&<span className="mr-1 text-indigo-500">▶</span>}{r.name}
                   </td>
-
-                  <td className={`py-2.5 px-3 text-right ${dark ? "text-gray-300" : "text-gray-600"}`}>
-                    {fmt(r.qty)}
-                  </td>
-
-                  <td className="py-2.5 px-3 text-right text-green-600 font-medium">
-                    {fmt(r.received)}
-                  </td>
-
-                  <td className={`py-2.5 px-3 text-right ${
-                    r.pending > 0
-                      ? "text-red-500 font-medium"
-                      : "text-green-600"
-                  }`}>
-                    {fmt(r.pending)}
-                  </td>
-
-                  <td className={`py-2.5 px-3 text-right font-semibold ${
-                    dark ? "text-indigo-400" : "text-indigo-600"
-                  }`}>
-                    ₹{fmt(r.spend)}K
-                  </td>
+                  <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>{fmt(r.qty)}</td>
+                  <td className="py-2.5 px-3 text-right text-green-600 font-medium">{fmt(r.received)}</td>
+                  <td className={`py-2.5 px-3 text-right ${r.pending>0?"text-red-500 font-medium":"text-green-600"}`}>{fmt(r.pending)}</td>
+                  <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>₹{fmt(r.spend)}K</td>
                 </tr>
               ))}
             </tbody>
@@ -873,142 +999,133 @@ function ItemDashboard({ po, dark }) {
         </div>
       </div>
 
+      {/* Drill-down table */}
       {selectedItem && (
-        <div className={`rounded-xl border overflow-hidden ${
-          dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"
-        } shadow-sm`}>
-
-          <div className="p-3 border-b">
-            <h3 className="font-semibold">
-              Pending PO Details - {selectedItem}
-            </h3>
+        <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
+          <div className={`px-4 py-3 border-b flex items-center justify-between ${dark?"border-gray-700":"border-gray-100"}`}>
+            <div>
+              <h3 className={`text-sm font-semibold ${dark?"text-white":"text-gray-800"}`}>
+                PO Details — {selectedItem}
+              </h3>
+              <p className={`text-xs mt-0.5 ${dark?"text-gray-400":"text-gray-500"}`}>All POs for this item</p>
+            </div>
+            <button onClick={()=>setSelectedItem(null)}
+              className={`text-xs px-2 py-1 rounded ${dark?"hover:bg-gray-700 text-gray-400":"hover:bg-gray-100 text-gray-400"}`}>
+              ✕ Close
+            </button>
           </div>
-
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-
-              <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
-                <tr>
-                  <th className="text-left py-2 px-3">PO No</th>
-                  <th className="text-left py-2 px-3">Supplier</th>
-                  <th className="text-right py-2 px-3">Ordered Qty</th>
-                  <th className="text-right py-2 px-3">Received Qty</th>
-                  <th className="text-right py-2 px-3">Pending Qty</th>
+              <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
+                <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
+                  {["PO No","PO Date","Supplier","Ordered Qty","Received Qty","Pending Qty","Pending Amt","Status","Age"].map(h=>(
+                    <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-
               <tbody>
-                {po
-                  .filter(
-                    p =>
-                      p.item &&
-                      p.item === selectedItem
-                  )
-                  .map((p, idx) => (
-                    <tr key={idx}>
-                      <td className="py-2 px-3 font-semibold text-indigo-600">
-                        {p.poNo}
-                      </td>
-
-                      <td className="py-2 px-3">
-                        {p.supplier}
-                      </td>
-
-                      <td className="py-2 px-3 text-right">
-                        {fmt(p.qty)}
-                      </td>
-
-                      <td className="py-2 px-3 text-right text-green-600">
-                        {fmt(p.receivedQty)}
-                      </td>
-
-                      <td className="py-2 px-3 text-right text-red-500 font-semibold">
-                        {fmt(Math.max(0, p.qty - p.receivedQty))}
-                      </td>
-                    </tr>
-                  ))}
+                {po.filter(p=>p.item===selectedItem)
+                  .sort((a,b)=>ageDays(b.poDate)-ageDays(a.poDate))
+                  .map((p,idx)=>{
+                    const pq  = Math.max(0,p.qty-p.receivedQty);
+                    const pa  = Math.round((pq/p.qty)*p.totalAmt);
+                    return(
+                      <tr key={idx} className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
+                        <td className={`py-2.5 px-3 font-mono text-xs font-semibold ${dark?"text-indigo-400":"text-indigo-600"}`}>{p.poNo}</td>
+                        <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{p.poDate}</td>
+                        <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{p.supplier}</td>
+                        <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>{fmt(p.qty)}</td>
+                        <td className="py-2.5 px-3 text-right text-green-600 font-medium">{fmt(p.receivedQty)}</td>
+                        <td className={`py-2.5 px-3 text-right font-bold ${pq>0?"text-red-500":"text-green-600"}`}>{fmt(pq)||"—"}</td>
+                        <td className={`py-2.5 px-3 text-right text-xs ${pq>0?dark?"text-amber-400":"text-amber-600":dark?"text-gray-500":"text-gray-400"}`}>
+                          {pq>0?fmtC(pa):"—"}
+                        </td>
+                        <td className="py-2.5 px-3"><Badge status={p.status}/></td>
+                        <td className="py-2.5 px-3">{p.status!=="Complete"?<AgeBadge days={ageDays(p.poDate)}/>:<span className="text-xs text-gray-400">—</span>}</td>
+                      </tr>
+                    );
+                })}
               </tbody>
-
             </table>
           </div>
         </div>
       )}
-
     </div>
   );
 }
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "📊" },
-  { id: "po", label: "PO Master", icon: "📋" },
-  { id: "receipts", label: "Receipts", icon: "📥" },
-  { id: "items", label: "Item Analytics", icon: "📦" },
-  { id: "rates", label: "Rate History", icon: "📈" },
-  { id: "upload", label: "Import Excel", icon: "⬆️" },
+  { id:"dashboard", label:"Dashboard",     icon:"📊" },
+  { id:"po",        label:"PO Master",     icon:"📋" },
+  { id:"receipts",  label:"Receipts",      icon:"📥" },
+  { id:"items",     label:"Item Analytics",icon:"📦" },
+  { id:"rates",     label:"Rate History",  icon:"📈" },
+  { id:"upload",    label:"Import Excel",  icon:"⬆️" },
 ];
 
 export default function POManagement() {
-  const [dark, setDark] = useState(false);
-  const [tab, setTab] = useState("dashboard");
+  const [dark,     setDark]     = useState(false);
+  const [tab,      setTab]      = useState("dashboard");
   const [sideOpen, setSideOpen] = useState(true);
-  const [po, setPO] = useState(() => mapPORows(MOCK_PO));
-  const [receipts, setReceipts] = useState(() => mapReceiptRows(MOCK_RECEIPTS));
-  const [rates, setRates] = useState(() => mapRateRows(MOCK_RATES));
-  const [user] = useState({ name: "Ayush Singh", role: "Admin" });
+  const [po,       setPO]       = useState(MOCK_PO);
+  const [receipts, setReceipts] = useState(MOCK_RECEIPTS);
+  const [rates,    setRates]    = useState(MOCK_RATES);
+  const [user]                  = useState({ name:"Ayush Singh", role:"Admin" });
 
-  const handleUpload = ({ po: p, receipts: r, rates: rt }) => {
-    if (p.length) setPO(p);
-    if (r.length) setReceipts(r);
+  const handleUpload = ({ po:p, receipts:r, rates:rt }) => {
+    if (p.length)  setPO(p);
+    if (r.length)  setReceipts(r);
     if (rt.length) setRates(rt);
     setTab("dashboard");
   };
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(po), "PO Master");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(po),       "PO Master");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(receipts), "Receipts");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rates), "Rate History");
-    XLSX.writeFile(wb, "PO_Report_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rates),    "Rate History");
+    XLSX.writeFile(wb, "PO_Report_"+new Date().toISOString().slice(0,10)+".xlsx");
   };
 
-  const bg = dark ? "bg-gray-900" : "bg-gray-50";
+  const bg      = dark ? "bg-gray-900" : "bg-gray-50";
   const sidebar = dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100";
-  const topbar = dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100";
-
-  const pendingCount = po.filter(r => r.status !== "Complete" && ageDays(r.poDate) > 15).length;
+  const topbar  = dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100";
+  const pendingCount = po.filter(r=>r.status!=="Complete"&&ageDays(r.poDate)>15).length;
 
   return (
-    <div className={`min-h-screen flex ${bg} font-sans`} style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div className={`min-h-screen flex ${bg} font-sans`} style={{fontFamily:"Inter, system-ui, sans-serif"}}>
       {/* Sidebar */}
-      <aside className={`${sideOpen ? "w-56" : "w-14"} transition-all duration-200 flex-shrink-0 border-r ${sidebar} flex flex-col`}>
-        <div className={`flex items-center gap-2 p-4 border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
+      <aside className={`${sideOpen?"w-56":"w-14"} transition-all duration-200 flex-shrink-0 border-r ${sidebar} flex flex-col`}>
+        <div className={`flex items-center gap-2 p-4 border-b ${dark?"border-gray-700":"border-gray-100"}`}>
           <span className="text-2xl">🏭</span>
-          {sideOpen && <div>
-            <p className={`text-sm font-bold ${dark ? "text-white" : "text-gray-800"}`}>ProProcure</p>
-            <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-400"}`}>PO Management</p>
+          {sideOpen&&<div>
+            <p className={`text-sm font-bold ${dark?"text-white":"text-gray-800"}`}>ProProcure</p>
+            <p className={`text-xs ${dark?"text-gray-400":"text-gray-400"}`}>PO Management</p>
           </div>}
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
-          {NAV.map(n => (
-            <button key={n.id} onClick={() => setTab(n.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${tab === n.id ? "bg-indigo-600 text-white font-medium" : dark ? "text-gray-300 hover:bg-gray-700" : "text-gray-600 hover:bg-gray-50"}`}>
+          {NAV.map(n=>(
+            <button key={n.id} onClick={()=>setTab(n.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors
+                ${tab===n.id?"bg-indigo-600 text-white font-medium":dark?"text-gray-300 hover:bg-gray-700":"text-gray-600 hover:bg-gray-50"}`}>
               <span className="text-base flex-shrink-0">{n.icon}</span>
-              {sideOpen && <span className="truncate">{n.label}</span>}
-              {sideOpen && n.id === "dashboard" && pendingCount > 0 && (
+              {sideOpen&&<span className="truncate">{n.label}</span>}
+              {sideOpen&&n.id==="dashboard"&&pendingCount>0&&(
                 <span className="ml-auto bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{pendingCount}</span>
               )}
             </button>
           ))}
         </nav>
-        <div className={`p-3 border-t ${dark ? "border-gray-700" : "border-gray-100"}`}>
-          {sideOpen && (
+        <div className={`p-3 border-t ${dark?"border-gray-700":"border-gray-100"}`}>
+          {sideOpen&&(
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700">
-                {user.name.split(" ").map(n => n[0]).join("")}
+                {user.name.split(" ").map(n=>n[0]).join("")}
               </div>
               <div>
-                <p className={`text-xs font-semibold ${dark ? "text-white" : "text-gray-800"}`}>{user.name}</p>
-                <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-400"}`}>{user.role}</p>
+                <p className={`text-xs font-semibold ${dark?"text-white":"text-gray-800"}`}>{user.name}</p>
+                <p className={`text-xs ${dark?"text-gray-400":"text-gray-400"}`}>{user.role}</p>
               </div>
             </div>
           )}
@@ -1017,39 +1134,39 @@ export default function POManagement() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Topbar */}
         <header className={`flex items-center justify-between px-4 py-3 border-b ${topbar} sticky top-0 z-10`}>
           <div className="flex items-center gap-3">
-            <button onClick={() => setSideOpen(o => !o)} className={`p-1.5 rounded-lg ${dark ? "hover:bg-gray-700 text-gray-300" : "hover:bg-gray-100 text-gray-500"}`}>
-              ☰
-            </button>
+            <button onClick={()=>setSideOpen(o=>!o)}
+              className={`p-1.5 rounded-lg ${dark?"hover:bg-gray-700 text-gray-300":"hover:bg-gray-100 text-gray-500"}`}>☰</button>
             <div>
-              <h1 className={`text-base font-semibold ${dark ? "text-white" : "text-gray-800"}`}>
-                {NAV.find(n => n.id === tab)?.icon} {NAV.find(n => n.id === tab)?.label}
+              <h1 className={`text-base font-semibold ${dark?"text-white":"text-gray-800"}`}>
+                {NAV.find(n=>n.id===tab)?.icon} {NAV.find(n=>n.id===tab)?.label}
               </h1>
-              <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-400"}`}>PP Auto Innovators · {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
+              <p className={`text-xs ${dark?"text-gray-400":"text-gray-400"}`}>
+                PP Auto Innovators · {new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={exportExcel}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${dark ? "border-gray-600 text-gray-300 hover:bg-gray-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border
+                ${dark?"border-gray-600 text-gray-300 hover:bg-gray-700":"border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
               ⬇ Export Excel
             </button>
-            <button onClick={() => setDark(d => !d)}
-              className={`p-1.5 rounded-lg text-sm ${dark ? "hover:bg-gray-700 text-yellow-300" : "hover:bg-gray-100 text-gray-500"}`}>
-              {dark ? "☀️" : "🌙"}
+            <button onClick={()=>setDark(d=>!d)}
+              className={`p-1.5 rounded-lg text-sm ${dark?"hover:bg-gray-700 text-yellow-300":"hover:bg-gray-100 text-gray-500"}`}>
+              {dark?"☀️":"🌙"}
             </button>
           </div>
         </header>
 
-        {/* Content */}
         <main className="flex-1 p-4 md:p-5 overflow-auto">
-          {tab === "dashboard" && <Dashboard po={po} receipts={receipts} dark={dark} />}
-          {tab === "po" && <POTable po={po} dark={dark} />}
-          {tab === "receipts" && <ReceiptsTable receipts={receipts} dark={dark} />}
-          {tab === "items" && <ItemDashboard po={po} dark={dark} />}
-          {tab === "rates" && <RateHistory rates={rates} dark={dark} />}
-          {tab === "upload" && <ExcelUpload onUpload={handleUpload} dark={dark} />}
+          {tab==="dashboard" && <Dashboard po={po} receipts={receipts} dark={dark} />}
+          {tab==="po"        && <POTable po={po} dark={dark} />}
+          {tab==="receipts"  && <ReceiptsTable receipts={receipts} dark={dark} />}
+          {tab==="items"     && <ItemDashboard po={po} dark={dark} />}
+          {tab==="rates"     && <RateHistory rates={rates} dark={dark} />}
+          {tab==="upload"    && <ExcelUpload onUpload={handleUpload} dark={dark} />}
         </main>
       </div>
     </div>
