@@ -54,6 +54,132 @@ const MOCK_RATES = [
   { date:"2026-05-12", supplier:"Sail India", item:"Angle Iron 50x50", newRate:50, oldRate:48 },
 ];
 
+
+// ─── PP AUTO EXCEL MAPPER ─────────────────────────────────────────────────────
+// g() — finds a key in a row object ignoring leading/trailing spaces
+// PP Auto Excel has columns like " Taxable Amt " (with spaces)
+function g(r, ...keys) {
+  for (const k of keys) {
+    if (r[k] !== undefined && r[k] !== null && r[k] !== "") return r[k];
+    const found = Object.keys(r).find(rk => rk.trim() === k.trim());
+    if (found !== undefined && r[found] !== null && r[found] !== undefined && r[found] !== "") return r[found];
+  }
+  return null;
+}
+
+// pn() — safe number parser
+const pn = v => {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  return parseFloat(String(v).replace(/,/g, "")) || 0;
+};
+
+function excelDateToISO(val) {
+  if (!val || val === "") return "";
+  if (val instanceof Date && !isNaN(val)) return val.toISOString().slice(0, 10);
+  if (typeof val === "number") {
+    const epoch = new Date(Date.UTC(1899, 11, 30) + val * 86400000);
+    if (!isNaN(epoch)) return epoch.toISOString().slice(0, 10);
+  }
+  if (typeof val === "string") {
+    val = val.trim();
+    // DD/MM/YYYY
+    const dmy = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
+    // ISO
+    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
+    // M/D/YY from XLSX raw:false
+    const mdy = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (mdy) {
+      const yr = mdy[3].length === 2 ? "20"+mdy[3] : mdy[3];
+      return `${yr}-${mdy[1].padStart(2,"0")}-${mdy[2].padStart(2,"0")}`;
+    }
+  }
+  return "";
+}
+
+function mapStatus(raw) {
+  if (!raw) return "Pending";
+  const s = String(raw).trim().toLowerCase();
+  if (s === "closed")       return "Complete";
+  if (s === "open")         return "Pending";
+  if (s.includes("cancel")) return "Cancelled";
+  if (s === "partial")      return "Partial";
+  return "Pending";
+}
+
+function mapPORows(rows) {
+  return rows
+    .map((r, i) => {
+      const poDate      = excelDateToISO(g(r, "P.O Date.", "poDate", "PO Date") ?? "");
+      const poNo        = String(g(r, "P.O No.", "poNo", "PO No") ?? "").trim();
+      const supplier    = String(g(r, "Supplier Name", "supplier", "Supplier") ?? "").trim();
+      const item        = String(g(r, "Items", "item", "Item") ?? "").trim();
+      const qty         = pn(g(r, "QTY", "qty"));
+      const rate        = pn(g(r, "Rate", "rate"));
+      const delivType   = String(g(r, "Delivery Type", "deliveryType") ?? "Regular").trim();
+      const gstType     = String(g(r, "GST Type", "gstType") ?? "").trim();
+      const taxableAmt  = pn(g(r, "Taxable Amt", "taxableAmt", "Taxable Amount"));
+      const totalAmt    = pn(g(r, "Total Rate With GST", "totalAmt", "Total Amount with GST"));
+      const preparedBy  = String(g(r, "Prepared By", "preparedBy") ?? "").trim();
+      const requestedBy = String(g(r, "Requested By", "requestedBy") ?? "").trim();
+      const authorisedBy= String(g(r, "Authorised by", "authorisedBy", "Authorised By") ?? "").trim();
+      const sentToParty = !!(g(r, "Sent to Party", "sentToParty"));
+      const receivedQty = pn(g(r, "Received QTY", "receivedQty"));
+      const rawStatus   = g(r, "Status of PO", "status") ?? "";
+      const status      = mapStatus(rawStatus);
+      const remarks     = String(g(r, "Remarks of PO", "remarks") ?? "").trim();
+      const intRemarks  = String(g(r, "Internal Remarks", "internalRemarks") ?? "").trim();
+
+      if (!poNo && !supplier && !item) return null;
+      if (status === "Cancelled") return null;
+
+      let finalStatus = status;
+      if (finalStatus === "Pending" && receivedQty > 0 && receivedQty < qty) finalStatus = "Partial";
+      if (finalStatus !== "Complete" && receivedQty >= qty && qty > 0)        finalStatus = "Complete";
+
+      return {
+        _rowId: i, poDate, poNo: String(poNo), supplier, item, qty, rate,
+        deliveryType: delivType || "Regular", gstType, taxableAmt, totalAmt,
+        preparedBy, requestedBy, authorisedBy, sentToParty,
+        receivedQty, status: finalStatus, remarks, internalRemarks: intRemarks,
+      };
+    })
+    .filter(Boolean);
+}
+
+function mapReceiptRows(rows) {
+  return rows
+    .map((r, i) => {
+      const date        = excelDateToISO(g(r, "Date", "date") ?? "");
+      const poNo        = String(g(r, "PO No.", "PO No", "poNo") ?? "").trim();
+      const voucherNo   = String(g(r, "Vou", "voucherNo", "Voucher No") ?? (i+1)).trim();
+      const supplier    = String(g(r, "Supplier", "supplier") ?? "").trim();
+      const item        = String(g(r, "Item", "item") ?? "").trim();
+      const receivedQty = pn(g(r, "Recvd QTY", "Received QTY", "receivedQty"));
+      const rate        = pn(g(r, "Rate", "rate"));
+      if (!poNo && !supplier) return null;
+      return { date, poNo: String(poNo), voucherNo, supplier, item, receivedQty, rate };
+    })
+    .filter(Boolean);
+}
+
+function mapRateRows(rows) {
+  return rows
+    .map(r => {
+      if (String(g(r, "Date") ?? "").trim() === "Date") return null;
+      const date     = excelDateToISO(g(r, "Date", "date") ?? "");
+      const supplier = String(g(r, "Supplier", "supplier") ?? "").trim();
+      const item     = String(g(r, "Item", "item") ?? "").trim();
+      const newRate  = pn(g(r, "New Rate", "newRate"));
+      const rawOld   = g(r, "Old Rate", "oldRate");
+      const oldRate  = (rawOld !== null && rawOld !== undefined && rawOld !== "") ? pn(rawOld) : 0;
+      if (!supplier || !item || !newRate) return null;
+      return { date, supplier, item, newRate, oldRate };
+    })
+    .filter(Boolean);
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const fmt  = (n) => new Intl.NumberFormat("en-IN").format(Math.round(Number(n) || 0));
 const fmtC = (n) => "₹" + new Intl.NumberFormat("en-IN").format(Math.round(Number(n) || 0));
@@ -814,81 +940,201 @@ function ReceiptsTable({ receipts, dark }) {
 
 // ─── RATE HISTORY ─────────────────────────────────────────────────────────────
 function RateHistory({ rates, dark }) {
-  const items     = [...new Set(rates.map(r=>r.item))];
-  const suppliers = [...new Set(rates.map(r=>r.supplier))];
-  const [selItem,     setSelItem]     = useState(items[0]||"");
+  const [search,      setSearch]      = useState("");
   const [selSupplier, setSelSupplier] = useState("All");
+  const [selItem,     setSelItem]     = useState("All");
+  const [expandedItem, setExpandedItem] = useState(null);
 
-  const filtered = rates.filter(r=>r.item===selItem&&(selSupplier==="All"||r.supplier===selSupplier))
-    .sort((a,b)=>a.date.localeCompare(b.date));
-  const chartData = filtered.map(r=>({date:r.date.slice(5),rate:r.newRate}));
-  const input=`px-3 py-1.5 rounded-lg text-sm border outline-none ${dark?"bg-gray-700 border-gray-600 text-white":"bg-white border-gray-200 text-gray-800"}`;
+  // All unique suppliers and items for dropdowns
+  const suppliers = useMemo(() => ["All", ...new Set(rates.map(r => r.supplier).filter(Boolean))].sort(), [rates]);
+  const items     = useMemo(() => ["All", ...new Set(rates.map(r => r.item).filter(Boolean))].sort(), [rates]);
+
+  // Filtered rates
+  const filtered = useMemo(() => {
+    return rates
+      .filter(r => {
+        if (!r.supplier || !r.item) return false;
+        if (selSupplier !== "All" && r.supplier !== selSupplier) return false;
+        if (selItem     !== "All" && r.item     !== selItem)     return false;
+        if (search) {
+          const q = search.toLowerCase();
+          if (!r.supplier.toLowerCase().includes(q) && !r.item.toLowerCase().includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date)); // latest first
+  }, [rates, selSupplier, selItem, search]);
+
+  // Group by item+supplier for summary view
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(r => {
+      const key = `${r.item}||${r.supplier}`;
+      if (!map[key]) map[key] = { item: r.item, supplier: r.supplier, history: [] };
+      map[key].history.push(r);
+    });
+    return Object.values(map).sort((a, b) => a.item.localeCompare(b.item));
+  }, [filtered]);
+
+  const input = `px-3 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-300
+    ${dark ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-200 text-gray-800"}`;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <select className={input} value={selItem}     onChange={e=>setSelItem(e.target.value)}>
-          {items.map(i=><option key={i}>{i}</option>)}
-        </select>
-        <select className={input} value={selSupplier} onChange={e=>setSelSupplier(e.target.value)}>
-          {["All",...suppliers].map(s=><option key={s}>{s}</option>)}
-        </select>
+
+      {/* ── Filters ─────────────────────────────────────────────────── */}
+      <div className={`rounded-xl p-4 border ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"}`}>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-48">
+            <label className={`block text-xs mb-1 font-medium ${dark ? "text-gray-400" : "text-gray-500"}`}>Search</label>
+            <input className={`${input} w-full`} placeholder="🔍 Item ya Supplier khojo..."
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div>
+            <label className={`block text-xs mb-1 font-medium ${dark ? "text-gray-400" : "text-gray-500"}`}>Supplier</label>
+            <select className={input} value={selSupplier} onChange={e => setSelSupplier(e.target.value)}>
+              {suppliers.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={`block text-xs mb-1 font-medium ${dark ? "text-gray-400" : "text-gray-500"}`}>Item</label>
+            <select className={input} value={selItem} onChange={e => setSelItem(e.target.value)}>
+              {items.map(i => <option key={i}>{i}</option>)}
+            </select>
+          </div>
+          {(search || selSupplier !== "All" || selItem !== "All") && (
+            <button onClick={() => { setSearch(""); setSelSupplier("All"); setSelItem("All"); }}
+              className="px-3 py-1.5 rounded-lg text-xs bg-red-500 text-white self-end">✕ Clear</button>
+          )}
+          <span className={`self-end text-xs px-2 py-1.5 rounded-lg ${dark ? "bg-gray-700 text-gray-300" : "bg-gray-100 text-gray-500"}`}>
+            {filtered.length} records · {grouped.length} items
+          </span>
+        </div>
       </div>
 
-      {chartData.length>0&&(
-        <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
-          <p className={`text-sm font-semibold mb-3 ${dark?"text-white":"text-gray-800"}`}>Rate trend — {selItem}</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="rateGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={dark?"#374151":"#f3f4f6"}/>
-              <XAxis dataKey="date" tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}}/>
-              <YAxis tick={{fill:dark?"#9ca3af":"#6b7280",fontSize:11}}/>
-              <Tooltip contentStyle={{background:dark?"#1f2937":"#fff",border:"1px solid #e5e7eb",borderRadius:8}}/>
-              <Area type="monotone" dataKey="rate" name="Rate (₹)" stroke="#6366f1" strokeWidth={2} fill="url(#rateGrad)" dot={{r:4}}/>
-            </AreaChart>
-          </ResponsiveContainer>
+      {/* ── ALL rates table — grouped by Item+Supplier ──────────────── */}
+      {grouped.length === 0 ? (
+        <div className={`rounded-xl p-10 text-center border ${dark ? "bg-gray-800 border-gray-700 text-gray-400" : "bg-white border-gray-100 text-gray-400"}`}>
+          No rate history found. Upload teri Excel file se data aayega.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {grouped.map(g => {
+            const latest  = g.history[0]; // already sorted latest first
+            const isOpen  = expandedItem === `${g.item}||${g.supplier}`;
+            const chartData = [...g.history].reverse().map(r => ({
+              date: r.date ? r.date.slice(5) : "",
+              rate: r.newRate,
+            }));
+            const totalChange = g.history.length > 1
+              ? parseFloat((g.history[0].newRate - g.history[g.history.length-1].oldRate).toFixed(2))
+              : 0;
+
+            return (
+              <div key={`${g.item}||${g.supplier}`}
+                className={`rounded-xl border overflow-hidden ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"} shadow-sm`}>
+
+                {/* Summary row — always visible */}
+                <div
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer
+                    ${isOpen ? dark ? "bg-indigo-900/30" : "bg-indigo-50" : dark ? "hover:bg-gray-700/40" : "hover:bg-gray-50"}`}
+                  onClick={() => setExpandedItem(isOpen ? null : `${g.item}||${g.supplier}`)}>
+
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold truncate ${dark ? "text-white" : "text-gray-800"}`}>{g.item}</p>
+                    <p className={`text-xs mt-0.5 ${dark ? "text-gray-400" : "text-gray-500"}`}>{g.supplier}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className={`text-base font-bold ${dark ? "text-white" : "text-gray-800"}`}>₹{latest.newRate}</p>
+                    <p className={`text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>Current Rate</p>
+                  </div>
+
+                  {latest.oldRate > 0 && (
+                    <div className="text-right min-w-16">
+                      <p className={`text-sm font-semibold ${totalChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                        {totalChange >= 0 ? "▲" : "▼"} {Math.abs(totalChange)}
+                      </p>
+                      <p className={`text-xs ${dark ? "text-gray-500" : "text-gray-400"}`}>
+                        {latest.oldRate > 0 ? (((latest.newRate - latest.oldRate)/latest.oldRate)*100).toFixed(1)+"%" : "—"}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className={`text-xs px-2 py-1 rounded-full font-medium ${dark ? "bg-gray-700 text-gray-300" : "bg-gray-100 text-gray-500"}`}>
+                    {g.history.length} updates
+                  </div>
+
+                  <span className={`text-lg ${dark ? "text-gray-400" : "text-gray-400"}`}>
+                    {isOpen ? "▲" : "▼"}
+                  </span>
+                </div>
+
+                {/* Expanded: chart + history table */}
+                {isOpen && (
+                  <div className={`border-t ${dark ? "border-gray-700" : "border-gray-100"}`}>
+
+                    {/* Mini trend chart */}
+                    {chartData.length > 1 && (
+                      <div className="px-4 pt-3 pb-1">
+                        <ResponsiveContainer width="100%" height={120}>
+                          <AreaChart data={chartData}>
+                            <defs>
+                              <linearGradient id={`rg_${g.item.slice(0,8)}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.25}/>
+                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke={dark ? "#374151" : "#f3f4f6"}/>
+                            <XAxis dataKey="date" tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 10 }}/>
+                            <YAxis tick={{ fill: dark ? "#9ca3af" : "#6b7280", fontSize: 10 }} width={45}/>
+                            <Tooltip contentStyle={{ background: dark ? "#1f2937" : "#fff", border: "1px solid #e5e7eb", borderRadius: 8 }}
+                              formatter={v => ["₹"+v, "Rate"]}/>
+                            <Area type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2}
+                              fill={`url(#rg_${g.item.slice(0,8)})`} dot={{ r: 3 }}/>
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {/* History rows */}
+                    <table className="w-full text-sm">
+                      <thead className={dark ? "bg-gray-700/50" : "bg-gray-50"}>
+                        <tr className={`border-b ${dark ? "border-gray-700" : "border-gray-100"}`}>
+                          {["Date","Old Rate","New Rate","Change","Change %"].map(h => (
+                            <th key={h} className={`text-left py-2 px-4 text-xs font-semibold ${dark ? "text-gray-400" : "text-gray-500"}`}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.history.map((r, i) => {
+                          const diff = parseFloat((r.newRate - r.oldRate).toFixed(2));
+                          const pct  = r.oldRate > 0 ? ((diff / r.oldRate) * 100).toFixed(2) : "—";
+                          return (
+                            <tr key={i} className={`border-b ${dark ? "border-gray-700/50 hover:bg-gray-700/30" : "border-gray-50 hover:bg-gray-50"}`}>
+                              <td className={`py-2 px-4 text-xs ${dark ? "text-gray-400" : "text-gray-500"}`}>{r.date || "—"}</td>
+                              <td className={`py-2 px-4 ${dark ? "text-gray-300" : "text-gray-600"}`}>
+                                {r.oldRate > 0 ? `₹${r.oldRate}` : <span className="text-gray-400 italic text-xs">New entry</span>}
+                              </td>
+                              <td className={`py-2 px-4 font-semibold ${dark ? "text-white" : "text-gray-800"}`}>₹{r.newRate}</td>
+                              <td className={`py-2 px-4 font-semibold ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : dark ? "text-gray-400" : "text-gray-400"}`}>
+                                {r.oldRate > 0 ? (diff >= 0 ? `+${diff}` : diff) : "—"}
+                              </td>
+                              <td className={`py-2 px-4 text-xs font-medium ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : dark ? "text-gray-400" : "text-gray-400"}`}>
+                                {r.oldRate > 0 ? (diff >= 0 ? `+${pct}%` : `${pct}%`) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
-
-      <div className={`rounded-xl border overflow-hidden ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"} shadow-sm`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className={dark?"bg-gray-700/50":"bg-gray-50"}>
-              <tr className={`border-b ${dark?"border-gray-700":"border-gray-100"}`}>
-                {["Date","Supplier","Item","Old Rate","New Rate","Change","Change %"].map(h=>(
-                  <th key={h} className={`text-left py-2 px-3 text-xs font-semibold ${dark?"text-gray-400":"text-gray-500"}`}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length===0&&(
-                <tr><td colSpan={7} className={`py-8 text-center text-sm ${dark?"text-gray-500":"text-gray-400"}`}>No rate history found.</td></tr>
-              )}
-              {filtered.map((r,i)=>{
-                const diff=r.newRate-r.oldRate;
-                const pct=((diff/r.oldRate)*100).toFixed(2);
-                return(
-                  <tr key={i} className={`border-b ${dark?"border-gray-700/50 hover:bg-gray-700/30":"border-gray-50 hover:bg-gray-50"}`}>
-                    <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-400":"text-gray-500"}`}>{r.date}</td>
-                    <td className={`py-2.5 px-3 font-medium ${dark?"text-white":"text-gray-800"}`}>{r.supplier}</td>
-                    <td className={`py-2.5 px-3 text-xs ${dark?"text-gray-300":"text-gray-600"}`}>{r.item}</td>
-                    <td className={`py-2.5 px-3 text-right ${dark?"text-gray-300":"text-gray-600"}`}>₹{r.oldRate}</td>
-                    <td className={`py-2.5 px-3 text-right font-semibold ${dark?"text-white":"text-gray-800"}`}>₹{r.newRate}</td>
-                    <td className={`py-2.5 px-3 text-right font-semibold ${diff>=0?"text-red-500":"text-green-600"}`}>{diff>=0?"+":""}{diff}</td>
-                    <td className={`py-2.5 px-3 text-right text-xs font-medium ${diff>=0?"text-red-500":"text-green-600"}`}>{diff>=0?"+":""}{pct}%</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }
@@ -896,28 +1142,68 @@ function RateHistory({ rates, dark }) {
 // ─── EXCEL UPLOAD ─────────────────────────────────────────────────────────────
 function ExcelUpload({ onUpload, dark }) {
   const [dragging, setDragging] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg]           = useState("");
+  const [stats, setStats]       = useState(null);
 
   const parse = (file) => {
     if (!file) return;
+    setMsg("⏳ Reading file...");
+    setStats(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = XLSX.read(e.target.result, { type:"binary", cellDates:true });
-        const po  = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]||{});
-        const rec = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[1]]||{});
-        const rat = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[2]]||{});
-        onUpload({ po, receipts:rec, rates:rat });
-        setMsg(`✅ Imported: ${po.length} POs, ${rec.length} receipts, ${rat.length} rate records`);
+        // cellFormula:false -> read cached calculated value, not formula string like "=E2*F2"
+        // This is KEY for PP Auto Excel where Taxable Amt, Total Rate etc. are formula cells
+        const wb = XLSX.read(e.target.result, {
+          type: "binary",
+          cellDates: true,
+          cellFormula: false,
+          cellNF: false,
+          raw: true,
+        });
+        const sheetNames = wb.SheetNames;
+
+        // Auto-detect sheets by name pattern (PP Auto format)
+        const findSheet = (patterns, fallbackIdx) =>
+          wb.Sheets[sheetNames.find(n => patterns.some(p => p.test(n))) ?? sheetNames[fallbackIdx]] || {};
+
+        const poSheet  = findSheet([/po_data/i, /po data/i, /purchase/i], 0);
+        const recSheet = findSheet([/recv/i, /receipt/i, /recvd/i],        1);
+        const ratSheet = findSheet([/rate/i],                               2);
+
+        // raw:true = numbers stay as actual numbers, NOT formatted strings
+        // "4,600" string from raw:false causes parseFloat to return 4 (stops at comma!)
+        const rawPO  = XLSX.utils.sheet_to_json(poSheet,  { raw: true, defval: null });
+        const rawRec = XLSX.utils.sheet_to_json(recSheet, { raw: true, defval: null });
+        const rawRat = XLSX.utils.sheet_to_json(ratSheet, { raw: true, defval: null });
+
+        const mappedPO  = mapPORows(rawPO);
+        const mappedRec = mapReceiptRows(rawRec);
+        const mappedRat = mapRateRows(rawRat);
+
+        if (mappedPO.length === 0) {
+          setMsg("❌ No PO rows found. Check that Sheet 1 has columns: P.O Date., P.O No., Supplier Name, Items, QTY, Rate");
+          return;
+        }
+
+        onUpload({ po: mappedPO, receipts: mappedRec, rates: mappedRat });
+
+        // Date range from uploaded data
+        const dates = mappedPO.map(r => r.poDate).filter(Boolean).sort();
+        const dateRange = dates.length ? `${dates[0]} to ${dates[dates.length-1]}` : "";
+
+        const skipped = rawPO.length - mappedPO.length;
+        setStats({ poCount: mappedPO.length, recCount: mappedRec.length, ratCount: mappedRat.length, skipped, dateRange });
+        setMsg("✅");
       } catch(err) {
-        setMsg("❌ Error: "+err.message);
+        setMsg("❌ Error reading file: " + err.message);
       }
     };
     reader.readAsBinaryString(file);
   };
 
   return (
-    <div className="space-y-4 max-w-xl mx-auto mt-8">
+    <div className="space-y-4 max-w-2xl mx-auto mt-8">
       <div
         onDragOver={e=>{e.preventDefault();setDragging(true);}}
         onDragLeave={()=>setDragging(false)}
@@ -926,13 +1212,59 @@ function ExcelUpload({ onUpload, dark }) {
           ${dragging?"border-indigo-400 bg-indigo-50":dark?"border-gray-600 bg-gray-800 hover:border-gray-500":"border-gray-200 bg-gray-50 hover:border-indigo-300"}`}
         onClick={()=>document.getElementById("xl-input").click()}>
         <div className="text-5xl mb-3">📊</div>
-        <p className={`font-semibold text-base ${dark?"text-white":"text-gray-700"}`}>Drop your Excel file here</p>
-        <p className={`text-sm mt-1 ${dark?"text-gray-400":"text-gray-400"}`}>or click to browse · .xlsx / .xls</p>
-        <p className={`text-xs mt-3 ${dark?"text-gray-500":"text-gray-400"}`}>Sheet 1: PO Master · Sheet 2: Receipts · Sheet 3: Rate History</p>
+        <p className={`font-semibold text-base ${dark?"text-white":"text-gray-700"}`}>PP Auto Excel file drop karo yahan</p>
+        <p className={`text-sm mt-1 ${dark?"text-gray-400":"text-gray-400"}`}>ya click karke browse karo · .xlsx / .xls</p>
+        <div className={`mt-4 text-xs space-y-1 ${dark?"text-gray-500":"text-gray-400"}`}>
+          <p>Sheet: <span className="font-semibold">PO_Data</span> · Columns: P.O Date., P.O No., Supplier Name, Items, QTY, Rate...</p>
+          <p>Sheet: <span className="font-semibold">Recvd_Item</span> · Sheet: <span className="font-semibold">Rate Update</span></p>
+        </div>
       </div>
       <input id="xl-input" type="file" accept=".xlsx,.xls" className="hidden"
         onChange={e=>parse(e.target.files[0])} />
-      {msg&&<p className={`text-sm text-center ${msg.startsWith("✅")?"text-green-600":"text-red-500"}`}>{msg}</p>}
+
+      {/* Success Stats */}
+      {stats && (
+        <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700":"bg-white border-gray-100"}`}>
+          <p className="text-green-600 font-semibold text-sm mb-3">✅ Import successful! Dashboard updated.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { l:"PO Rows",         v:stats.poCount,   c:"#6366f1" },
+              { l:"Receipt Rows",    v:stats.recCount,  c:"#10b981" },
+              { l:"Rate Records",    v:stats.ratCount,  c:"#f59e0b" },
+              { l:"Skipped (blank/cancelled)", v:stats.skipped, c:"#6b7280" },
+            ].map(s=>(
+              <div key={s.l} className={`rounded-lg p-3 ${dark?"bg-gray-700":"bg-gray-50"}`}>
+                <p className="text-xl font-bold" style={{color:s.c}}>{s.v}</p>
+                <p className={`text-xs mt-0.5 ${dark?"text-gray-400":"text-gray-500"}`}>{s.l}</p>
+              </div>
+            ))}
+          </div>
+          {stats.dateRange && (
+            <p className={`text-xs mt-3 ${dark?"text-gray-400":"text-gray-500"}`}>
+              📅 Date range: <span className="font-semibold">{stats.dateRange}</span>
+            </p>
+          )}
+          <p className={`text-xs mt-2 ${dark?"text-gray-500":"text-gray-400"}`}>
+            Month dropdown ab automatically teri data ke months se fill ho gaya hai. Dashboard tab pe check karo!
+          </p>
+        </div>
+      )}
+
+      {msg && !stats && msg !== "✅" && (
+        <p className={`text-sm text-center ${msg.startsWith("✅")?"text-green-600":msg.startsWith("⏳")?"text-indigo-500":"text-red-500"}`}>{msg}</p>
+      )}
+
+      <div className={`rounded-xl p-4 border ${dark?"bg-gray-800 border-gray-700 text-gray-400":"bg-gray-50 border-gray-100 text-gray-500"} text-xs`}>
+        <p className="font-semibold mb-2">Status Mapping (PP Auto → Dashboard)</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[["Open","Pending (yellow)"],["Closed","Complete (green)"],["PO Cancelled","Skipped"]].map(([a,b])=>(
+            <div key={a} className={`rounded p-2 ${dark?"bg-gray-700":"bg-white"}`}>
+              <p className="font-semibold">{a}</p>
+              <p className="opacity-70">{b}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
